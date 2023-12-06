@@ -1,0 +1,5 @@
+lib: [
+  "_build/install/default/lib/ppurs/META"
+  "_build/install/default/lib/ppurs/dune-package"
+  "_build/install/default/lib/ppurs/opam"
+]
