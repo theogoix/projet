@@ -225,8 +225,11 @@ and add_binding_gen env bind =
 
 
 let rec check_coherent_decl = function
-| GDefFun(_, _, _, _, _, li) :: q -> let env = { bindings = Smap.empty; fvars = Vset.empty } in check_coherent_equations env li ; check_coherent_decl q
-| t :: q -> check_coherent_decl q
+| t :: q -> 
+  begin match t.gdecl_desc with
+    | GDefFun(_, _, _, _, _, li) -> let env = { bindings = Smap.empty; fvars = Vset.empty } in check_coherent_equations env li ; check_coherent_decl q
+    | _ -> check_coherent_decl q
+  end
 | [] -> ()
 and check_coherent_equations env = function
 | (pats, e) :: q -> let _ = w_expr env e in check_coherent_equations env q

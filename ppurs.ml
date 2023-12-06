@@ -80,7 +80,11 @@ let () =
 
     (* type analysis *)
 
-    (*let _ = group_fun decl_li in ();*)
+    let gdecl_li = group_fun decl_li in ();
+
+    check_coherent_decl gdecl_li;
+
+    print_endline "Successful typing";
 
     exit 0
 

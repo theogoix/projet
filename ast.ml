@@ -66,15 +66,22 @@ avec une seule colone qui n'a pas que des variables et remplacer ça par un case
 *)
 
 let rec group_fun decl_li = match decl_li with
- | DefData::q -> GDefData :: (group_fun q)
- | DefClass::q -> GDefClass :: (group_fun q)
- | DefInstance::q -> GDefInstance :: (group_fun q)
- | DefTypefun(id, foralls, insts, args, ret)::q -> let q2, eqs = find_equations q id [] in GDefFun(id, foralls, insts, args, ret, eqs) :: (group_fun q2)
+  | t::q ->
+    begin match t.decl_desc with
+      | DefData -> {gdecl_desc = GDefData ; loc = t.loc }:: (group_fun q)
+      | DefClass -> {gdecl_desc = GDefClass ; loc = t.loc } :: (group_fun q)
+      | DefInstance -> {gdecl_desc = GDefInstance ; loc = t.loc } :: (group_fun q)
+      | DefTypefun(id, foralls, insts, args, ret) -> let q2, eqs = find_equations q id [] in {gdecl_desc = GDefFun(id, foralls, insts, args, ret, eqs) ; loc = t.loc} :: (group_fun q2)
+      | _ -> failwith "equation de fonction mal placée (remplacer ce message par une erreur propre)"
+    end
  | [] -> []
- | _ -> failwith "equation de fonction mal placée (remplacer ce message par une erreur propre)"
 and find_equations decl_li id eqs = 
   match decl_li with
-    | DefEqfun(id, pat_li, e)::q -> find_equations q id ((pat_li, e)::eqs)
+    | t::q ->
+      begin match t.decl_desc with
+      | DefEqfun(id, pat_li, e) -> find_equations q id ((pat_li, e)::eqs)
+      | _ -> decl_li, eqs
+      end
     | _ -> decl_li, eqs
 
 
