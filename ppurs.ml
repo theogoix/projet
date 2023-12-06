@@ -6,11 +6,13 @@ open Typing
 open Format
 open Lexing
 open Indentlexer
-
+open Errors
 
 
 (* name of the file to compile *)
 let ifile = ref ""
+
+
 
 let set_file f s = f := s
 
@@ -33,10 +35,10 @@ let usage = "usage: ppurs [option] file.purs"
 
 
 (* error localisation *)
-let localisation pos =
+(*let localisation pos =
   let l = pos.pos_lnum in
   let c = pos.pos_cnum - pos.pos_bol + 1 in
-  eprintf "File \"%s\", line %d, characters %d-%d:\n" !ifile l (c-1) c
+  eprintf "File \"%s\", line %d, characters %d-%d:\n" !ifile l (c-1) c *)
 
 
 (* Main part*)
@@ -47,6 +49,7 @@ let () =
   
   if !ifile="" then begin eprintf "No file to compile\n@?"; exit 1 end;
 
+  Errors.ifile := !ifile;
   
   if not (Filename.check_suffix !ifile ".purs") then begin
     eprintf "Entry file must have .purs extension\n@?";
@@ -76,11 +79,11 @@ let () =
     if !parse_only then exit 0;
 
     (* type analysis *)
-  (*
-    let _ = group_fun decl_li in ();
+
+    (*let _ = group_fun decl_li in ();*)
 
     exit 0
-  *)
+
   with
     | Lexer.Lexing_error c ->
 	localisation (Lexing.lexeme_start_p buf);

@@ -159,14 +159,14 @@ let find x env =
 let rec w_expr env (expr:expr) = match expr.expr_desc with
   | Evar x ->
       find x env
-  | Ecst Cint _ ->
-      Tint
-  | Ecst Cbool _ ->
-      Tbool
-  | Ecst Cstring _ ->
-      Tstring
+  | Ecst c ->
+      begin match c.constant_desc with
+        | Cbool _ -> Tbool
+        | Cint _ -> Tint
+        | Cstring _ -> Tstring
+      end
   | Ebinop (op, e1, e2) -> 
-      begin match op with
+      begin match op.binop_desc with
         | Add | Sub | Mul | Div ->
           if cant_unify Tint (w_expr env e1) || cant_unify Tint (w_expr env e2) then begin
               localisation expr.loc;
