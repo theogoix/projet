@@ -76,11 +76,11 @@ let () =
     if !parse_only then exit 0;
 
     (* type analysis *)
-
+  (*
     let _ = group_fun decl_li in ();
 
     exit 0
-
+  *)
   with
     | Lexer.Lexing_error c ->
 	localisation (Lexing.lexeme_start_p buf);
