@@ -55,6 +55,16 @@ and pp_tvar fmt = function
   | { def = Some t; id } -> Format.fprintf fmt "@[<1>('%d := %a)@]" id pp_typ t
 
 
+let rec string_of_typ = function
+| Tint -> "Int"
+| Tbool -> "Bool"
+| Tstring -> "String"
+| Tarrow(t1, t2) -> string_of_typ t1 ^ " -> " ^ string_of_typ t2
+| Tproduct(t1, t2) -> string_of_typ t1 ^ " * " ^ string_of_typ t2
+| Tvar(v) -> match v.def with
+    | None -> "Var " ^ string_of_int v.id
+    | Some t -> "(Var " ^ string_of_int v.id ^ " = " ^ string_of_typ t ^ ")"
+
 
 (* unification *)
 
@@ -69,6 +79,10 @@ let rec occur v t = match head t with
 
 let rec unify t1 t2 = match head t1, head t2 with
   | Tint, Tint ->
+      ()
+  | Tbool, Tbool ->
+      ()
+  | Tstring, Tstring ->
       ()
   | Tvar v1, Tvar v2 when V.equal v1 v2 ->
       ()
@@ -105,14 +119,6 @@ let rec fvars t = match head t with
 let norm_varset s =
   Vset.fold (fun v s -> Vset.union (fvars (Tvar v)) s) s Vset.empty
 
-let () =
-  assert (Vset.is_empty (fvars (Tarrow (Tint, Tint))));
-  let a = V.create () in
-  let ta = Tvar a in
-  let ty = Tarrow (ta, ta) in
-  assert (Vset.equal (fvars ty) (Vset.singleton a));
-  unify ty (Tarrow (Tint, Tint));
-  assert (Vset.is_empty (fvars ty))
 
 (* environnement c'est une table bindings (string -> schema),
    et un ensemble de variables de types libres *)
@@ -155,6 +161,10 @@ let find x env =
 
 
 
+let typ_of_tpe
+
+
+
 (* algorithme W *)
 let rec w_expr env (expr:expr) = match expr.expr_desc with
   | Evar x ->
@@ -168,34 +178,64 @@ let rec w_expr env (expr:expr) = match expr.expr_desc with
   | Ebinop (op, e1, e2) -> 
       begin match op.binop_desc with
         | Add | Sub | Mul | Div ->
-          if cant_unify Tint (w_expr env e1) || cant_unify Tint (w_expr env e2) then begin
-              localisation expr.loc;
-              eprintf "Typing error: Using integer operation on a non-integer@." end;
+          let t1 = w_expr env e1 in
+          let t2 = w_expr env e2 in
+          if cant_unify Tint t1 then begin
+              localisation e1.loc;
+              eprintf "Typing error: This expression should have type Int but has type %s instead@." (string_of_typ t1);
+              exit 1 end;
+          if cant_unify Tint t2 then begin
+              localisation e2.loc;
+              eprintf "Typing error: This expression should have type Int but has type %s instead@." (string_of_typ t2);
+              exit 1 end;
             Tint
         | And | Or ->
-          if cant_unify Tbool (w_expr env e1) || cant_unify Tbool (w_expr env e2) then begin
-              localisation expr.loc;
-              eprintf "Typing error: Using boolean operation on a non-boolean@." end;
+          let t1 = w_expr env e1 in
+          let t2 = w_expr env e2 in
+          if cant_unify Tbool t1 then begin
+              localisation e1.loc;
+              eprintf "Typing error: This expression should have type Bool but has type %s instead@." (string_of_typ t1);
+              exit 1 end;
+          if cant_unify Tbool t2 then begin
+              localisation e2.loc;
+              eprintf "Typing error: This expression should have type Bool but has type %s instead@." (string_of_typ t2);
+              exit 1 end;
             Tbool
         | Gt | Ge | Lt | Le ->
-          if cant_unify Tint (w_expr env e1) || cant_unify Tint (w_expr env e2) then begin
-              localisation expr.loc;
-              eprintf "Typing error: Using integer comparaison on a non-integers@." end;
+          let t1 = w_expr env e1 in
+          let t2 = w_expr env e2 in
+          if cant_unify Tint t1 then begin
+              localisation e1.loc;
+              eprintf "Typing error: This expression should have type Int but has type %s instead@." (string_of_typ t1);
+              exit 1 end;
+          if cant_unify Tint t2 then begin
+              localisation e2.loc;
+              eprintf "Typing error: This expression should have type Int but has type %s instead@." (string_of_typ t2);
+              exit 1 end;
             Tbool
         | Conc ->
-          if cant_unify Tstring (w_expr env e1) || cant_unify Tstring (w_expr env e2) then begin
-              localisation expr.loc;
-              eprintf "Typing error: Using string operation on a non-string@." end;
+          let t1 = w_expr env e1 in
+          let t2 = w_expr env e2 in
+          if cant_unify Tstring t1 then begin
+              localisation e1.loc;
+              eprintf "Typing error: This expression should have type String but has type %s instead@." (string_of_typ t1);
+              exit 1 end;
+          if cant_unify Tstring t2 then begin
+              localisation e2.loc;
+              eprintf "Typing error: This expression should have type String but has type %s instead@." (string_of_typ t2);
+              exit 1 end;
             Tstring
         | Eq | Neq ->
           let t1 = w_expr env e1 in
           let t2 = w_expr env e2 in
           if cant_unify t1 t2 then begin
               localisation expr.loc;
-              eprintf "Typing error: Trying to compare different types @." end;
+              eprintf "Typing error: Trying to compare types %s and %s@." (string_of_typ t1) (string_of_typ t2);
+              exit 1 end;
           if cant_unify t1 Tint && cant_unify t1 Tbool && cant_unify t1 Tstring then begin
               localisation expr.loc;
-              eprintf "Typing error: Trying to compare non ints, bools or strings @." end;
+              eprintf "Typing error: Trying to compare types %s and %s@." (string_of_typ t1) (string_of_typ t2);
+              exit 1 end;
             Tbool
         end
  (* | Pair (e1, e2) ->
@@ -227,7 +267,7 @@ and add_binding_gen env bind =
 let rec check_coherent_decl = function
 | t :: q -> 
   begin match t.gdecl_desc with
-    | GDefFun(_, _, _, _, _, li) -> let env = { bindings = Smap.empty; fvars = Vset.empty } in check_coherent_equations env li ; check_coherent_decl q
+    | GDefFun(_, _, _, _, _, li) -> let env = empty in check_coherent_equations env li ; check_coherent_decl q
     | _ -> check_coherent_decl q
   end
 | [] -> ()
