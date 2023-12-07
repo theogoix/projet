@@ -90,12 +90,12 @@ let () =
 
   with
     | Lexer.Lexing_error c ->
-	localisation (Lexing.lexeme_start_p buf);
+	localisation (Lexing.lexeme_start_p buf, Lexing.lexeme_end_p buf);
 	eprintf "Lexing error: %s@." c;
 	exit 1
 
     | Parser.Error ->
-	localisation (Lexing.lexeme_start_p buf);
+	localisation (Lexing.lexeme_start_p buf, Lexing.lexeme_end_p buf);
 	eprintf "Syntax error@.";
 	exit 1
 
