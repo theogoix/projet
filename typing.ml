@@ -161,8 +161,6 @@ let find x env =
 
 
 
-let typ_of_tpe
-
 
 
 (* algorithme W *)
