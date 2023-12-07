@@ -266,6 +266,20 @@ let rec w_expr env (expr:expr) = match expr.expr_desc with
       let v = Tvar (V.create ()) in
       unify t1 (Tarrow (t2, v));
       v *)
+  | Eif (e1,e2,e3) -> 
+      let t1 = w_expr env e1 in 
+      if cant_unify Tbool t1 then begin 
+        localisation e1.loc;
+        eprintf "Typing error : Type bool expected, got type %s@." (string_of_typ t1);
+        exit 1 end;
+      let t2 = w_expr env e2 in 
+      let t3 = w_expr env e3 in 
+      if cant_unify t2 t3 then begin 
+        localisation e2.loc;
+        localisation e3.loc;
+        eprintf "Typing error : both branches of if ... else should have same type but got %s and %s instead@." (string_of_typ t2) (string_of_typ t3);
+        exit 1 end; 
+      t2
   | Eappli (f, expr_li) ->
       let tf = begin try find f env with
       Not_found -> 
