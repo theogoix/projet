@@ -11,7 +11,8 @@ type typ =
   | Tint
   | Tbool
   | Tstring
-  | Tarrow of typ * typ
+  | Tunit
+  | Tarrow of typ list * typ
   | Tproduct of typ * typ
   | Tvar of tvar
 
@@ -35,11 +36,13 @@ let rec head = function
 
 (* forme canonique d'un type = on applique head récursivement *)
 let rec canon t = match head t with
-  | Tvar _ | Tint | Tbool | Tstring as t -> t
-  | Tarrow (t1, t2) -> Tarrow (canon t1, canon t2)
+  | Tvar _ | Tint | Tbool | Tstring | Tunit as t -> t
+  | Tarrow (li, t2) -> Tarrow (List.map canon li, canon t2)
   | Tproduct (t1, t2) -> Tproduct (canon t1, canon t2)
 
 (* pretty printer de type *)
+
+(*
 let rec pp_typ fmt = function
   | Tproduct (t1, t2) -> Format.fprintf fmt "%a *@ %a" pp_atom t1 pp_atom t2
   | Tarrow (t1, t2) -> Format.fprintf fmt "%a ->@ %a" pp_atom t1 pp_typ t2
@@ -53,13 +56,15 @@ and pp_atom fmt = function
 and pp_tvar fmt = function
   | { def = None; id } -> Format.fprintf fmt "'%d" id
   | { def = Some t; id } -> Format.fprintf fmt "@[<1>('%d := %a)@]" id pp_typ t
+*)
 
 
 let rec string_of_typ = function
 | Tint -> "Int"
 | Tbool -> "Bool"
 | Tstring -> "String"
-| Tarrow(t1, t2) -> string_of_typ t1 ^ " -> " ^ string_of_typ t2
+| Tunit -> "Unit"
+| Tarrow(li, t2) -> List.fold_left (fun s t -> s ^ string_of_typ t ^ " -> ") "" li ^ string_of_typ t2
 | Tproduct(t1, t2) -> string_of_typ t1 ^ " * " ^ string_of_typ t2
 | Tvar(v) -> match v.def with
     | None -> "Var " ^ string_of_int v.id
@@ -74,8 +79,9 @@ let unification_error t1 t2 = raise (UnificationFailure (canon t1, canon t2))
 
 let rec occur v t = match head t with
   | Tvar w -> V.equal v w
-  | Tarrow (t1, t2) | Tproduct (t1, t2) -> occur v t1 || occur v t2
-  | Tint | Tbool | Tstring -> false
+  | Tarrow (li, t2) -> List.fold_left (fun b t -> b || occur v t) false li || occur v t2
+  | Tproduct (t1, t2) -> occur v t1 || occur v t2
+  | Tint | Tbool | Tstring | Tunit -> false
 
 let rec unify t1 t2 = match head t1, head t2 with
   | Tint, Tint ->
@@ -83,6 +89,8 @@ let rec unify t1 t2 = match head t1, head t2 with
   | Tbool, Tbool ->
       ()
   | Tstring, Tstring ->
+      ()
+  | Tunit, Tunit ->
       ()
   | Tvar v1, Tvar v2 when V.equal v1 v2 ->
       ()
@@ -92,7 +100,8 @@ let rec unify t1 t2 = match head t1, head t2 with
       v1.def <- Some t2
   | t1, Tvar v2 ->
       unify t2 t1
-  | Tarrow (t11, t12), Tarrow (t21, t22)
+  | Tarrow (li1, t21), Tarrow (li2, t22) ->
+    unify t21 t22; (try List.iter2 unify li1 li2 with Invalid_argument(_) -> unification_error t1 t2)
   | Tproduct (t11, t12), Tproduct (t21, t22) ->
       unify t11 t21; unify t12 t22
   | t1, t2 ->
@@ -112,8 +121,9 @@ type schema = { vars : Vset.t; typ : typ }
 (* variables libres *)
 
 let rec fvars t = match head t with
-  | Tint | Tbool | Tstring -> Vset.empty
-  | Tarrow (t1, t2) | Tproduct (t1, t2) -> Vset.union (fvars t1) (fvars t2)
+  | Tint | Tbool | Tstring | Tunit -> Vset.empty
+  | Tarrow (li, t2) -> Vset.union (List.fold_left (fun set t -> Vset.union set (fvars t)) Vset.empty li) (fvars t2)
+  | Tproduct (t1, t2) -> Vset.union (fvars t1) (fvars t2)
   | Tvar v -> Vset.singleton v
 
 let norm_varset s =
@@ -153,8 +163,9 @@ let find x env =
     | Tvar x as t -> (try Vmap.find x s with Not_found -> t)
     | Tint -> Tint
     | Tbool -> Tbool
+    | Tunit -> Tunit
     | Tstring -> Tstring
-    | Tarrow (t1, t2) -> Tarrow (subst t1, subst t2)
+    | Tarrow (li, t2) -> Tarrow (List.map subst li, subst t2)
     | Tproduct (t1, t2) -> Tproduct (subst t1, subst t2)
   in
   subst tx.typ
@@ -251,6 +262,26 @@ let rec w_expr env (expr:expr) = match expr.expr_desc with
       let v = Tvar (V.create ()) in
       unify t1 (Tarrow (t2, v));
       v *)
+  | Eappli (f, expr_li) ->
+      let tf = find f env in
+      begin match tf with
+      | Tarrow (typ_li, t2) ->
+        let check e t =
+          let t' = w_expr env e in
+          if cant_unify t t' then begin
+            localisation e.loc;
+            eprintf "Typing error: Type %s expected, got type %s@." (string_of_typ t) (string_of_typ t');
+            exit 1 end
+        in
+        begin try List.iter2 check expr_li typ_li with
+          Invalid_argument(_) ->
+            localisation expr.loc;
+            eprintf "Typing error: Wrong number of argument for function %s@." f;
+            exit 1
+        end;
+        t2
+      | _ -> failwith("gros problème")
+      end
   | Elet (li, e) ->
       w_expr (List.fold_left add_binding_gen env li) e
   | _ -> failwith("misssing case in W")
@@ -262,13 +293,20 @@ and add_binding_gen env bind =
 
 
 
-let rec check_coherent_decl = function
-| t :: q -> 
-  begin match t.gdecl_desc with
-    | GDefFun(_, _, _, _, _, li) -> let env = empty in check_coherent_equations env li ; check_coherent_decl q
-    | _ -> check_coherent_decl q
-  end
-| [] -> ()
+let rec check_coherent_decl decl_li =
+  let env = {
+    bindings = 
+      Smap.(empty |> add "log" { vars = Vset.empty; typ = Tarrow([Tstring], Tunit) }
+                  |> add "mod" { vars = Vset.empty; typ = Tarrow([Tint; Tint], Tint) } );
+    fvars = Vset.empty } 
+  in
+  match decl_li with
+  | t :: q -> 
+    begin match t.gdecl_desc with
+      | GDefFun(_, _, _, _, _, li) -> check_coherent_equations env li ; check_coherent_decl q
+      | _ -> check_coherent_decl q
+    end
+  | [] -> ()
 and check_coherent_equations env = function
-| (pats, e) :: q -> let _ = w_expr env e in check_coherent_equations env q
+| (pats, e) :: q -> let t = w_expr env e in print_endline (string_of_typ t); check_coherent_equations env q
 | [] -> ()
