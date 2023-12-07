@@ -310,7 +310,7 @@ let rec w_expr env (expr:expr) = match expr.expr_desc with
       end
   | Elet (li, e) ->
       w_expr (List.fold_left add_binding_gen env li) e
-  | _ -> failwith("misssing case in W")
+  | _ -> (*failwith("misssing case in W")*)exit 1
 
 and add_binding_gen env bind = 
   let x, e = bind in
@@ -354,11 +354,23 @@ let rec check_coherent_decl env gdecl_li =
   | [] -> ()
 and check_coherent_equations f arg_types ret_type env = function
 | (pats, e) :: q -> 
+    let env =
+    begin try List.fold_left2
+    begin fun env arg_type pat -> 
+      match pat.pattern_desc with
+      | PatVar(x) -> add false x arg_type env
+      | _ -> env
+    end
+    env arg_types pats
+    with Invalid_argument (_) -> 
+      localisation e.loc;
+      eprintf "Typing error: Wrong number of arguments in equation defining %s@." f;
+      exit 1 end
+    in
     let t = w_expr env e in
-    (*rajoute les var  à l'env*)
     if cant_unify t ret_type then begin
       localisation e.loc;
-      eprintf "Typing error: Function %s should return %s, retunrs %s instead@." f (string_of_typ ret_type) (string_of_typ t);
+      eprintf "Typing error: Function %s should return %s, returns %s instead@." f (string_of_typ ret_type) (string_of_typ t);
       exit 1 end;
     check_coherent_equations f arg_types ret_type env q
 | [] -> ()
@@ -368,6 +380,7 @@ let check_file decl_li =
   let env = {
     bindings = 
       Smap.(empty |> add "log" { vars = Vset.empty; typ = Tarrow([Tstring], Tunit) }
+                  |> add "not" { vars = Vset.empty; typ = Tarrow([Tbool], Tbool) }
                   |> add "mod" { vars = Vset.empty; typ = Tarrow([Tint; Tint], Tint) } );
     fvars = Vset.empty } 
   in

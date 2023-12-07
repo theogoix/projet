@@ -79,7 +79,7 @@ and find_equations decl_li id eqs =
   match decl_li with
     | t::q ->
       begin match t.decl_desc with
-      | DefEqfun(id2, pat_li, e) -> if id == id2 then find_equations q id ((pat_li, e)::eqs) else failwith "aaaaaaaaaaaaaaa"
+      | DefEqfun(id2, pat_li, e) -> if id = id2 then find_equations q id ((pat_li, e)::eqs) else failwith ("equation de fonction mal placée (remplacer ce message par une erreur propre)" ^ id ^ id2)
       | _ -> decl_li, eqs
       end
     | _ -> decl_li, eqs
