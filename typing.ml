@@ -177,7 +177,11 @@ let find x env =
 (* algorithme W *)
 let rec w_expr env (expr:expr) = match expr.expr_desc with
   | Evar x ->
-      find x env
+      begin try find x env with
+      Not_found -> 
+        localisation expr.loc;
+        eprintf "Typing error: Unkown variable %s@." x;
+        exit 1 end
   | Ecst c ->
       begin match c.constant_desc with
         | Cbool _ -> Tbool
@@ -263,7 +267,12 @@ let rec w_expr env (expr:expr) = match expr.expr_desc with
       unify t1 (Tarrow (t2, v));
       v *)
   | Eappli (f, expr_li) ->
-      let tf = find f env in
+      let tf = begin try find f env with
+      Not_found -> 
+        localisation expr.loc;
+        eprintf "Typing error: Unkown function %s@." f;
+        exit 1 end
+      in
       begin match tf with
       | Tarrow (typ_li, t2) ->
         let check e t =
@@ -280,7 +289,10 @@ let rec w_expr env (expr:expr) = match expr.expr_desc with
             exit 1
         end;
         t2
-      | _ -> failwith("gros problème")
+      | _ -> 
+        localisation expr.loc;
+        eprintf "Typing error: Trying to apply variable %s which is not a function@." f;
+        exit 1
       end
   | Elet (li, e) ->
       w_expr (List.fold_left add_binding_gen env li) e
