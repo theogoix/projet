@@ -318,21 +318,57 @@ and add_binding_gen env bind =
   add true x t env
 
 
+let typ_of_tpe var_names tpe = match tpe.tpe_desc with
+| TypeVar(x) -> begin try Tvar (Smap.find x var_names) with 
+    Not_found -> 
+      localisation tpe.loc;
+      eprintf "Typing error: Unkown type variable %s@." x;
+      exit 1 end
+| TypeConstr(id, li) -> match id with
+  | "Int" -> Tint
+  | "Bool" -> Tbool
+  | "Unit" -> Tunit
+  | "String" -> Tstring
+  | _ -> failwith "aled"
 
-let rec check_coherent_decl decl_li =
+
+let rec check_coherent_decl env gdecl_li =
+  match gdecl_li with
+  | gdecl :: q -> 
+    begin match gdecl.gdecl_desc with
+      | GDefFun(f, foralls, _, args, ret, li) -> 
+        let var_list, var_names = List.fold_left
+        (fun (var_list, var_names) a -> let tv = V.create () in tv::var_list, Smap.add a tv var_names)
+        ([], Smap.empty) foralls
+        in
+        let arg_types = List.map (typ_of_tpe var_names) args in
+        let ret_type = typ_of_tpe var_names ret in
+        let schema = 
+        {vars = Vset.of_list var_list ;
+        typ = Tarrow(arg_types, ret_type) }
+        in
+        check_coherent_equations f arg_types ret_type { bindings = Smap.add f schema env.bindings ; fvars = env.fvars } li ;
+        check_coherent_decl { bindings = Smap.add f schema env.bindings ; fvars = env.fvars } q
+      | _ -> check_coherent_decl env q
+    end
+  | [] -> ()
+and check_coherent_equations f arg_types ret_type env = function
+| (pats, e) :: q -> 
+    let t = w_expr env e in
+    (*rajoute les var  à l'env*)
+    if cant_unify t ret_type then begin
+      localisation e.loc;
+      eprintf "Typing error: Function %s should return %s, retunrs %s instead@." f (string_of_typ ret_type) (string_of_typ t);
+      exit 1 end;
+    check_coherent_equations f arg_types ret_type env q
+| [] -> ()
+
+
+let check_file decl_li = 
   let env = {
     bindings = 
       Smap.(empty |> add "log" { vars = Vset.empty; typ = Tarrow([Tstring], Tunit) }
                   |> add "mod" { vars = Vset.empty; typ = Tarrow([Tint; Tint], Tint) } );
     fvars = Vset.empty } 
   in
-  match decl_li with
-  | t :: q -> 
-    begin match t.gdecl_desc with
-      | GDefFun(_, _, _, _, _, li) -> check_coherent_equations env li ; check_coherent_decl q
-      | _ -> check_coherent_decl q
-    end
-  | [] -> ()
-and check_coherent_equations env = function
-| (pats, e) :: q -> let t = w_expr env e in print_endline (string_of_typ t); check_coherent_equations env q
-| [] -> ()
+  check_coherent_decl env decl_li

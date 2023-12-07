@@ -82,7 +82,7 @@ let () =
 
     let gdecl_li = group_fun decl_li in ();
 
-    check_coherent_decl gdecl_li;
+    check_file gdecl_li;
 
     print_endline "Successful typing";
 
