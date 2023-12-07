@@ -4,6 +4,4 @@ import Effect
 import Effect.Console
 
 main::Unit->Unit
-main = do log "a"
-          do log "b"
-             log "c"
+main = if 5 then mod 5 4 else 2 
