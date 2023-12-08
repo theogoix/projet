@@ -12,9 +12,10 @@ type typ =
   | Tbool
   | Tstring
   | Tunit
-  | Tarrow of typ list * typ
-  | Tproduct of typ * typ
-  | Tvar of tvar
+  | Tarrow    of typ list * typ
+  | Tproduct  of typ * typ
+  | Tvar      of tvar
+  | Tdata     of string * typ list
 
 and tvar =
   { id : int;
@@ -29,16 +30,16 @@ module V = struct
   let create = let r = ref 0 in fun () -> incr r; { id = !r; def = None }
 end
 
-(* réduction en tête d'un type (la compression de chemin serait possible) *)
+(* réduction en tête d'un type *)
 let rec head = function
   | Tvar { def = Some t } -> head t
   | t -> t
 
 (* forme canonique d'un type = on applique head récursivement *)
-let rec canon t = match head t with
+(*let rec canon t = match head t with
   | Tvar _ | Tint | Tbool | Tstring | Tunit as t -> t
   | Tarrow (li, t2) -> Tarrow (List.map canon li, canon t2)
-  | Tproduct (t1, t2) -> Tproduct (canon t1, canon t2)
+  | Tproduct (t1, t2) -> Tproduct (canon t1, canon t2) *)
 
 (* pretty printer de type *)
 
@@ -59,27 +60,41 @@ and pp_tvar fmt = function
 *)
 
 
-let rec string_of_typ = function
+let rec string_of_typ typ = match head typ with
 | Tint -> "Int"
 | Tbool -> "Bool"
 | Tstring -> "String"
 | Tunit -> "Unit"
 | Tarrow(li, t2) -> List.fold_left (fun s t -> s ^ string_of_typ t ^ " -> ") "" li ^ string_of_typ t2
+| Tdata(id, li) -> id ^ List.fold_left (fun s t -> s ^ " " ^ string_of_typ t) "" li
 | Tproduct(t1, t2) -> string_of_typ t1 ^ " * " ^ string_of_typ t2
 | Tvar(v) -> match v.def with
     | None -> "Var " ^ string_of_int v.id
     | Some t -> "(Var " ^ string_of_int v.id ^ " = " ^ string_of_typ t ^ ")"
+
+let rec string_of_typ_shovars typ = match typ with
+| Tint -> "Int"
+| Tbool -> "Bool"
+| Tstring -> "String"
+| Tunit -> "Unit"
+| Tdata(id, li) -> id ^ List.fold_left (fun s t -> s ^ " " ^ string_of_typ_shovars t) "" li
+| Tarrow(li, t2) -> List.fold_left (fun s t -> s ^ string_of_typ_shovars t ^ " -> ") "" li ^ string_of_typ_shovars t2
+| Tproduct(t1, t2) -> string_of_typ_shovars t1 ^ " * " ^ string_of_typ_shovars t2
+| Tvar(v) -> match v.def with
+    | None -> "Var " ^ string_of_int v.id
+    | Some t -> "(Var " ^ string_of_int v.id ^ " = " ^ string_of_typ_shovars t ^ ")"
 
 
 (* unification *)
 
 exception UnificationFailure of typ * typ
 
-let unification_error t1 t2 = raise (UnificationFailure (canon t1, canon t2))
+let unification_error t1 t2 = raise (UnificationFailure (t1, t2))
 
 let rec occur v t = match head t with
   | Tvar w -> V.equal v w
   | Tarrow (li, t2) -> List.fold_left (fun b t -> b || occur v t) false li || occur v t2
+  | Tdata (_, li) -> List.fold_left (fun b t -> b || occur v t) false li
   | Tproduct (t1, t2) -> occur v t1 || occur v t2
   | Tint | Tbool | Tstring | Tunit -> false
 
@@ -92,6 +107,8 @@ let rec unify t1 t2 = match head t1, head t2 with
       ()
   | Tunit, Tunit ->
       ()
+  | Tdata(id1, li1), Tdata(id2, li2) ->
+      begin try List.iter2 unify li1 li2 with Invalid_argument(_) -> unification_error t1 t2 end
   | Tvar v1, Tvar v2 when V.equal v1 v2 ->
       ()
   | Tvar v1 as t1, t2 ->
@@ -122,6 +139,7 @@ type schema = { vars : Vset.t; typ : typ }
 
 let rec fvars t = match head t with
   | Tint | Tbool | Tstring | Tunit -> Vset.empty
+  | Tdata (_, li) -> List.fold_left (fun set t -> Vset.union set (fvars t)) Vset.empty li
   | Tarrow (li, t2) -> Vset.union (List.fold_left (fun set t -> Vset.union set (fvars t)) Vset.empty li) (fvars t2)
   | Tproduct (t1, t2) -> Vset.union (fvars t1) (fvars t2)
   | Tvar v -> Vset.singleton v
@@ -165,10 +183,19 @@ let find x env =
     | Tbool -> Tbool
     | Tunit -> Tunit
     | Tstring -> Tstring
+    | Tdata (id, li) -> Tdata (id, List.map subst li)
     | Tarrow (li, t2) -> Tarrow (List.map subst li, subst t2)
     | Tproduct (t1, t2) -> Tproduct (subst t1, subst t2)
   in
   subst tx.typ
+
+
+
+(* Datas *)
+
+
+let datas = ref Smap.empty;; (* Smap des datas et de leur variables de types *)
+datas := Smap.add "Effect" [V.create ()] !datas;;
 
 
 
@@ -308,6 +335,34 @@ let rec w_expr env (expr:expr) = match expr.expr_desc with
         eprintf "Typing error: Trying to apply variable %s which is not a function@." f;
         exit 1
       end
+  | Econstr (f, expr_li) ->
+      let tf = begin try find f env with
+      Not_found -> 
+        localisation expr.loc;
+        eprintf "Typing error: Unkown constructor %s@." f;
+        exit 1 end
+      in
+      begin match tf with
+      | Tarrow (typ_li, t2) ->
+        let check e t =
+          let t' = w_expr env e in
+          if cant_unify t t' then begin
+            localisation e.loc;
+            eprintf "Typing error: Type %s expected, got type %s@." (string_of_typ t) (string_of_typ t');
+            exit 1 end
+        in
+        begin try List.iter2 check expr_li typ_li with
+          Invalid_argument(_) ->
+            localisation expr.loc;
+            eprintf "Typing error: Wrong number of argument for constructor %s@." f;
+            exit 1
+        end;
+        t2
+      | _ -> 
+        localisation expr.loc; (* Ne devrait jamais arriver *)
+        eprintf "Typing error: Constructor %s should have an arrow type but has type %s instead@." f (string_of_typ tf);
+        exit 1
+      end
   | Elet (li, e) ->
       w_expr (List.fold_left add_binding_gen env li) e
   | _ -> (*failwith("misssing case in W")*)exit 1
@@ -318,7 +373,7 @@ and add_binding_gen env bind =
   add true x t env
 
 
-let typ_of_tpe var_names tpe = match tpe.tpe_desc with
+let rec typ_of_tpe var_names tpe = match tpe.tpe_desc with
 | TypeVar(x) -> begin try Tvar (Smap.find x var_names) with 
     Not_found -> 
       localisation tpe.loc;
@@ -329,13 +384,14 @@ let typ_of_tpe var_names tpe = match tpe.tpe_desc with
   | "Bool" -> Tbool
   | "Unit" -> Tunit
   | "String" -> Tstring
-  | _ -> failwith "aled"
+  | _ -> Tdata(id, List.map (typ_of_tpe var_names) li)
 
 
-let rec check_coherent_decl env gdecl_li =
+let rec type_decl env gdecl_li =
   match gdecl_li with
   | gdecl :: q -> 
     begin match gdecl.gdecl_desc with
+
       | GDefFun(f, foralls, _, args, ret, li) -> 
         let var_list, var_names = List.fold_left
         (fun (var_list, var_names) a -> let tv = V.create () in tv::var_list, Smap.add a tv var_names)
@@ -347,12 +403,35 @@ let rec check_coherent_decl env gdecl_li =
         {vars = Vset.of_list var_list ;
         typ = Tarrow(arg_types, ret_type) }
         in
-        check_coherent_equations f arg_types ret_type { bindings = Smap.add f schema env.bindings ; fvars = env.fvars } li ;
-        check_coherent_decl { bindings = Smap.add f schema env.bindings ; fvars = env.fvars } q
-      | _ -> check_coherent_decl env q
+        type_equations f arg_types ret_type { bindings = Smap.add f schema env.bindings ; fvars = env.fvars } li ;
+        type_decl { bindings = Smap.add f schema env.bindings ; fvars = env.fvars } q
+
+
+      | GDefData(id, foralls, constructors) ->
+        let var_list, var_names = List.fold_left
+        (fun (var_list, var_names) a -> let tv = V.create () in tv::var_list, Smap.add a tv var_names)
+        ([], Smap.empty) foralls
+        in
+        datas := Smap.add id var_list !datas;
+        let env = List.fold_left
+        begin fun env constr ->
+          let cid, args = constr in
+          let arg_types = List.map (typ_of_tpe var_names) args in
+          let ret_type = Tdata(id, List.map (fun tv -> Tvar(tv)) var_list) in
+          let schema = 
+          {vars = Vset.of_list var_list ;
+          typ = Tarrow(arg_types, ret_type) }
+          in
+          { bindings = Smap.add cid schema env.bindings ; fvars = env.fvars }
+        end
+        env constructors in
+        type_decl env q
+
+
+      | _ -> type_decl env q
     end
   | [] -> ()
-and check_coherent_equations f arg_types ret_type env = function
+and type_equations f arg_types ret_type env = function
 | (pats, e) :: q -> 
     let env =
     begin try List.fold_left2
@@ -372,16 +451,16 @@ and check_coherent_equations f arg_types ret_type env = function
       localisation e.loc;
       eprintf "Typing error: Function %s should return %s, returns %s instead@." f (string_of_typ ret_type) (string_of_typ t);
       exit 1 end;
-    check_coherent_equations f arg_types ret_type env q
+      type_equations f arg_types ret_type env q
 | [] -> ()
 
 
-let check_file decl_li = 
+let type_file decl_li = 
   let env = {
     bindings = 
-      Smap.(empty |> add "log" { vars = Vset.empty; typ = Tarrow([Tstring], Tunit) }
+      Smap.(empty |> add "log" { vars = Vset.empty; typ = Tarrow([Tstring], Tdata("Effect", [Tunit])) }
                   |> add "not" { vars = Vset.empty; typ = Tarrow([Tbool], Tbool) }
                   |> add "mod" { vars = Vset.empty; typ = Tarrow([Tint; Tint], Tint) } );
     fvars = Vset.empty } 
   in
-  check_coherent_decl env decl_li
+  type_decl env decl_li

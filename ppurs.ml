@@ -3,6 +3,7 @@
 
 open Ast
 open Typing
+open Grouping
 open Format
 open Lexing
 open Indentlexer
@@ -82,7 +83,7 @@ let () =
 
     let gdecl_li = group_fun decl_li in ();
 
-    check_file gdecl_li;
+    type_file gdecl_li;
 
     print_endline "Successful typing";
 

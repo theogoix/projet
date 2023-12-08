@@ -39,7 +39,7 @@ type tpe_desc =
 and tpe = {tpe_desc : tpe_desc ; loc : position*position}
 
 type decl_desc =
-  | DefData
+  | DefData         of string * string list * (string * tpe list) list
   | DefClass
   | DefInstance
   | DefTypefun      of string * string list * unit list * tpe list * tpe 
@@ -48,40 +48,12 @@ type decl_desc =
 and decl = {decl_desc : decl_desc ; loc : position*position}
 
 type gdecl_desc = (* grouped_declarations*)
-  | GDefData
+  | GDefData         of string * string list * (string * tpe list) list
   | GDefClass
   | GDefInstance
   | GDefFun          of string * string list * unit list * tpe list * tpe * (pattern list * expr) list (*combine DefTypefun et une liste de DefEqfun*)
 and gdecl = {gdecl_desc : gdecl_desc ; loc : position*position}
 
 
-
-(*
-Vérification que les déclarations de fonctions sont bien de la forme:
-f::type...
-f x11 ... x1n = e1
-      ...
-f xk1 ... xkn = e1
-avec une seule colone qui n'a pas que des variables et remplacer ça par un case avec une seule définition pour f
-*)
-
-let rec group_fun decl_li = match decl_li with
-  | t::q ->
-    begin match t.decl_desc with
-      | DefData -> {gdecl_desc = GDefData ; loc = t.loc }:: (group_fun q)
-      | DefClass -> {gdecl_desc = GDefClass ; loc = t.loc } :: (group_fun q)
-      | DefInstance -> {gdecl_desc = GDefInstance ; loc = t.loc } :: (group_fun q)
-      | DefTypefun(id, foralls, insts, args, ret) -> let q2, eqs = find_equations q id [] in {gdecl_desc = GDefFun(id, foralls, insts, args, ret, eqs) ; loc = t.loc} :: (group_fun q2)
-      | _ -> failwith "equation de fonction mal placée (remplacer ce message par une erreur propre)"
-    end
- | [] -> []
-and find_equations decl_li id eqs = 
-  match decl_li with
-    | t::q ->
-      begin match t.decl_desc with
-      | DefEqfun(id2, pat_li, e) -> if id = id2 then find_equations q id ((pat_li, e)::eqs) else failwith ("equation de fonction mal placée (remplacer ce message par une erreur propre)" ^ id ^ id2)
-      | _ -> decl_li, eqs
-      end
-    | _ -> decl_li, eqs
 
 

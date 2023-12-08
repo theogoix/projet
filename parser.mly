@@ -61,13 +61,13 @@ imports:
 decl:
   | d = defn { d }
   | d = tdecl { d } 
-  | DATA ; UIDENT ; LIDENT* ; EQUAL ; separated_nonempty_list(BAR, consdecl) { {decl_desc = DefData ; loc = ($startpos, $endpos)} }
+  | DATA ; id = UIDENT ; vars = LIDENT* ; EQUAL ; li = separated_nonempty_list(BAR, consdecl) { {decl_desc = DefData(id, vars, li) ; loc = ($startpos, $endpos)} }
   | CLASS ; UIDENT ; LIDENT* ; WHERE ; OBRAC ; separated_list(SEMICOL, tdecl) ; CBRAC { {decl_desc = DefClass ; loc = ($startpos, $endpos)} }
   | INSTANCE ; instance ; WHERE ; OBRAC ; separated_list(SEMICOL, defn) ;  CBRAC { {decl_desc = DefInstance ; loc = ($startpos, $endpos)} }
 ;
 
 consdecl:
-  UIDENT ; atype* { () }
+  id = UIDENT ; li = atype* { (id, li) }
 ;
 
 defn:
