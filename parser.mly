@@ -127,10 +127,10 @@ pattern:
 ;
 
 constant:
-  | TRUE { {constant_desc = Cbool(true) ; loc = ($startpos, $endpos)} }
-  | FALSE { {constant_desc = Cbool(false) ; loc = ($startpos, $endpos)} }
-  | n = INT { {constant_desc = Cint(n) ; loc = ($startpos, $endpos)} }
-  | str = STRING { {constant_desc = Cstring(str) ; loc = ($startpos, $endpos)} }
+  | TRUE { Cbool(true) }
+  | FALSE { Cbool(false) }
+  | n = INT { Cint(n) }
+  | str = STRING { Cstring(str) }
 ;
 
 atom:
@@ -145,8 +145,8 @@ expr:
   | a = atom { a }
   | MINUS ; e = expr { 
     {expr_desc = Ebinop(
-      {binop_desc = Sub ; loc = ($startpos, $endpos)},
-      {expr_desc = Ecst({constant_desc = Cint(0) ; loc = ($startpos, $endpos)}) ; loc = ($startpos, $endpos)},
+      Sub,
+      {expr_desc = Ecst(Cint(0)) ; loc = ($startpos, $endpos)},
       e
     ) ;
     loc = ($startpos, $endpos)} }
@@ -168,17 +168,17 @@ branch:
 ;
 
 %inline binop:
-  | DOUBLEEQ { {binop_desc = Eq ; loc = ($startpos, $endpos)} }
-  | NEQ { {binop_desc = Neq ; loc = ($startpos, $endpos)} }
-  | LT { {binop_desc = Lt ; loc = ($startpos, $endpos)} }
-  | LE { {binop_desc = Le ; loc = ($startpos, $endpos)} }
-  | GT { {binop_desc = Gt ; loc = ($startpos, $endpos)} }
-  | GE { {binop_desc = Ge ; loc = ($startpos, $endpos)} }
-  | PLUS { {binop_desc = Add ; loc = ($startpos, $endpos)} }
-  | MINUS { {binop_desc = Sub ; loc = ($startpos, $endpos)} }
-  | MUL { {binop_desc = Mul ; loc = ($startpos, $endpos)} }
-  | DIV { {binop_desc = Div ; loc = ($startpos, $endpos)} }
-  | CONC { {binop_desc = Conc ; loc = ($startpos, $endpos)} }
-  | AND { {binop_desc = And ; loc = ($startpos, $endpos)} }
-  | OR { {binop_desc = Or ; loc = ($startpos, $endpos)} }
+  | DOUBLEEQ { Eq }
+  | NEQ { Neq }
+  | LT { Lt }
+  | LE { Le }
+  | GT { Gt }
+  | GE { Ge }
+  | PLUS { Add }
+  | MINUS { Sub }
+  | MUL { Mul }
+  | DIV { Div }
+  | CONC { Conc }
+  | AND { And }
+  | OR { Or }
 ;
