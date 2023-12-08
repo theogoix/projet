@@ -138,18 +138,13 @@ atom:
   | id = LIDENT { {expr_desc = Evar(id) ; loc = ($startpos, $endpos)} }
   | s = UIDENT { {expr_desc = Econstr(s, [])  ; loc = ($startpos, $endpos)}}
   | OPAR ; e = expr ; CPAR { e }
-  | OPAR ; e = expr ; DOUBLECOL ; btype ; CPAR { e }
+  | OPAR ; e = expr ; DOUBLECOL ; t = btype ; CPAR { {expr_desc = Eforcetype(e, t) ; loc = ($startpos, $endpos)} }
 ;
 
 expr:
   | a = atom { a }
   | MINUS ; e = expr { 
-    {expr_desc = Ebinop(
-      Sub,
-      {expr_desc = Ecst(Cint(0)) ; loc = ($startpos, $endpos)},
-      e
-    ) ;
-    loc = ($startpos, $endpos)} }
+    {expr_desc = Ebinop(Sub, {expr_desc = Ecst(Cint(0)) ; loc = ($startpos, $endpos)}, e) ; loc = ($startpos, $endpos)} }
   | e1 = expr ; b = binop ; e2 = expr { {expr_desc = Ebinop(b, e1, e2) ; loc = ($startpos, $endpos)} }
   | s = LIDENT ; li = atom+ { {expr_desc = Eappli(s, li) ; loc = ($startpos, $endpos)} }
   | s = UIDENT ; li = atom+ { {expr_desc = Econstr(s, li) ; loc = ($startpos, $endpos)} }

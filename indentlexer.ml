@@ -165,5 +165,5 @@ let token buf =
     find_tokens tok pos c buf false
   else () ;
   let tok = Queue.take token_queue in
-  (* print_endline (token_to_str tok); *) (*for debbuging*)
+  (*print_endline (token_to_str tok);*)  (*for debbuging*)
   tok

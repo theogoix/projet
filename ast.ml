@@ -18,6 +18,11 @@ type pattern_desc =
   | PatConstant     of constant
 and pattern = {pattern_desc : pattern_desc ; loc : position*position}
 
+type tpe_desc =
+  | TypeVar           of string
+  | TypeConstr        of string * tpe list
+and tpe = {tpe_desc : tpe_desc ; loc : position*position}
+
 type expr_desc =
   | Ecst          of constant
   | Evar          of string
@@ -28,13 +33,10 @@ type expr_desc =
   | Ecase         of expr list * (pattern list * expr) list
   | Eappli        of string * expr list
   | Econstr       of string * expr list
+  | Eforcetype    of expr * tpe
 and expr = {expr_desc : expr_desc ; loc : position*position}
 and bind = string * expr
 
-type tpe_desc =
-  | TypeVar           of string
-  | TypeConstr        of string * tpe list
-and tpe = {tpe_desc : tpe_desc ; loc : position*position}
 
 type decl_desc =
   | DefData         of string * string list * (string * tpe list) list
@@ -66,7 +68,7 @@ type t_expr_desc =
   | TEif           of t_expr * t_expr * t_expr
   | TEdo           of t_expr list
   | TElet          of t_bind list * t_expr
-  | TEcase         of t_expr * (pattern * t_expr) list
+  | TEcase         of t_expr list * (pattern list * t_expr) list
   | TEappli        of string * t_expr list
   | TEconstr       of string * t_expr list
   | TEgetconstr    of t_expr
