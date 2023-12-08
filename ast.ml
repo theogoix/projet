@@ -25,7 +25,7 @@ type expr_desc =
   | Eif           of expr * expr * expr   (* if <expr> then <expr> else <expr> *)
   | Edo           of expr list
   | Elet          of bind list * expr
-  | Ecase         of expr * (pattern * expr) list
+  | Ecase         of expr list * (pattern list * expr) list
   | Eappli        of string * expr list
   | Econstr       of string * expr list
 and expr = {expr_desc : expr_desc ; loc : position*position}
@@ -44,6 +44,7 @@ type decl_desc =
                     (* f:: forall a1 ... ak => I1 ... Il -> t1 ... tm -> t*)
   | DefEqfun        of string * pattern list * expr
 and decl = {decl_desc : decl_desc ; loc : position*position}
+
 
 
 (* déclaration groupées *)
@@ -68,6 +69,8 @@ type t_expr_desc =
   | TEcase         of t_expr * (pattern * t_expr) list
   | TEappli        of string * t_expr list
   | TEconstr       of string * t_expr list
+  | TEgetconstr    of t_expr
+  | TEgetarg       of t_expr * int
 and t_expr = {expr_desc : t_expr_desc ; loc : position*position; typ : Typing_def.typ}
 and t_bind = string * t_expr
 

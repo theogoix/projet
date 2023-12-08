@@ -156,7 +156,7 @@ expr:
   | IF ; ec = expr ; THEN ; e1 = expr ; ELSE ; e2 = expr { {expr_desc = Eif(ec, e1, e2) ; loc = ($startpos, $endpos)} }
   | DO ; OBRAC ; li = separated_nonempty_list(SEMICOL, expr) ; CBRAC { {expr_desc = Edo(li) ; loc = ($startpos, $endpos)} }
   | LET ; OBRAC ; bs = separated_nonempty_list(SEMICOL, binding) ; CBRAC ; IN ; e = expr { {expr_desc = Elet(bs, e) ; loc = ($startpos, $endpos)} }
-  | CASE ; e = expr ; OF ; OBRAC ; li = separated_nonempty_list(SEMICOL, branch) ; CBRAC { {expr_desc = Ecase(e, li) ; loc = ($startpos, $endpos)} }
+  | CASE ; e = expr ; OF ; OBRAC ; li = separated_nonempty_list(SEMICOL, branch) ; CBRAC { {expr_desc = Ecase([e], li) ; loc = ($startpos, $endpos)} }
 ;
 
 binding:
@@ -164,7 +164,7 @@ binding:
 ;
 
 branch:
-  p = pattern ; ARROW ; e = expr { (p, e) }
+  p = pattern ; ARROW ; e = expr { ([p], e) }
 ;
 
 %inline binop:
