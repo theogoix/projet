@@ -62,7 +62,7 @@ decl:
   | d = defn { d }
   | d = tdecl { d } 
   | DATA ; id = UIDENT ; vars = LIDENT* ; EQUAL ; li = separated_nonempty_list(BAR, consdecl) { {decl_desc = DefData(id, vars, li) ; loc = ($startpos, $endpos)} }
-  | CLASS ; UIDENT ; LIDENT* ; WHERE ; OBRAC ; separated_list(SEMICOL, tdecl) ; CBRAC { {decl_desc = DefClass ; loc = ($startpos, $endpos)} }
+  | CLASS ; id = UIDENT ; vars = LIDENT* ; WHERE ; OBRAC ; decl_li = separated_list(SEMICOL, tdecl) ; CBRAC { {decl_desc = DefClass(id, vars, decl_li) ; loc = ($startpos, $endpos)} }
   | INSTANCE ; instance ; WHERE ; OBRAC ; separated_list(SEMICOL, defn) ;  CBRAC { {decl_desc = DefInstance ; loc = ($startpos, $endpos)} }
 ;
 

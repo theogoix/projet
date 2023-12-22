@@ -40,7 +40,7 @@ and bind = string * expr
 
 type decl_desc =
   | DefData         of string * string list * (string * tpe list) list
-  | DefClass
+  | DefClass        of string * string list * decl list
   | DefInstance
   | DefTypefun      of string * string list * unit list * tpe list * tpe 
                     (* f:: forall a1 ... ak => I1 ... Il -> t1 ... tm -> t*)
@@ -53,9 +53,9 @@ and decl = {decl_desc : decl_desc ; loc : position*position}
 
 type gdecl_desc = (* grouped_declarations*)
   | GDefData         of string * string list * (string * tpe list) list
-  | GDefClass
+  | GDefClass        of string * string list * decl list
   | GDefInstance
-  | GDefFun          of string * string list * unit list * tpe list * tpe * (pattern list * expr) list (*combine DefTypefun et une liste de DefEqfun*)
+  | GDefFun          of string * string list * unit list * tpe list * tpe * expr (*combine DefTypefun et une liste de DefEqfun*)
 and gdecl = {gdecl_desc : gdecl_desc ; loc : position*position}
 
 

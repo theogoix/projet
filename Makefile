@@ -1,6 +1,5 @@
 
 all: ppurs.exe
-#	dune exec ./ppurs.exe --parse-only test.purs           ne marche pas ?
 	dune exec ./ppurs.exe test.purs
 
 

@@ -37,6 +37,14 @@
        "where", WHERE
        ];
    fun s upper -> try Hashtbl.find h s with Not_found -> if upper then UIDENT s else LIDENT s
+  
+
+  (*let (string_start:Lexing.position ref) = ref {
+    pos_fname = name;
+    pos_lnum = 1;
+    pos_bol = 0;
+    pos_cnum = -1;
+  };;*)
 
 }
 
@@ -76,7 +84,7 @@ rule token = parse
   | '.' { DOT }
   | "::" { DOUBLECOL }
   | "Effect.Console" { EFFECT_DOT_CONSOLE }
-  | '"'     { STRING (string lexbuf) }
+  | '"'     { let s = string lexbuf in STRING (s) }
   | ['1'-'9'] digit* as s { INT (int_of_string s) }
   | '0' { INT 0 }
   | lowercase id_char* as s { id_or_kwd s false}
@@ -106,7 +114,8 @@ and string = parse
 
 and string_skipper = parse
   | "\\" { string lexbuf }
-  | [' '  '\t' '\n'] { string_skipper lexbuf }
+  | [' '  '\t'] { string_skipper lexbuf }
+  | '\n' { Lexing.new_line lexbuf; string_skipper lexbuf }
   | _ { raise (Lexing_error "Unknown escape character") }
 
 and comment = parse

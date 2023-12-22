@@ -57,7 +57,7 @@ and pp_tvar fmt = function
   | { def = Some t; id } -> Format.fprintf fmt "@[<1>('%d := %a)@]" id pp_typ t
 *)
 
-
+(*
 let rec string_of_typ typ = match head typ with
 | Tint -> "Int"
 | Tbool -> "Bool"
@@ -69,7 +69,7 @@ let rec string_of_typ typ = match head typ with
 | Tvar(v) -> match v.def with
     | None -> "Var " ^ string_of_int v.id
     | Some t -> "(Var " ^ string_of_int v.id ^ " = " ^ string_of_typ t ^ ")"
-
+*)
 let rec string_of_typ_shovars typ = match typ with
 | Tint -> "Int"
 | Tbool -> "Bool"
@@ -82,3 +82,4 @@ let rec string_of_typ_shovars typ = match typ with
     | None -> "Var " ^ string_of_int v.id
     | Some t -> "(Var " ^ string_of_int v.id ^ " = " ^ string_of_typ_shovars t ^ ")"
 
+let string_of_typ = string_of_typ_shovars;;

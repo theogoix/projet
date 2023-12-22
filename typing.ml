@@ -8,6 +8,7 @@ open Format
 open Errors
 open Typing_def
 open Lexing
+open Grouping
 
 (* unification *)
 
@@ -118,11 +119,14 @@ let find x env =
 
 
 
-(* Datas *)
+
 
 
 let datas = ref Smap.empty;; (* Smap des datas et de leur variables de types *)
 datas := Smap.add "Effect" [V.create ()] !datas;;
+
+let classes = ref Smap.empty;; (* Smap des classes et de leur variables de types *)
+datas := Smap.add "Show" [V.create ()] !classes;;
 
 
 
@@ -310,7 +314,7 @@ let rec w_expr env (expr:expr) = match expr.expr_desc with
       end
 
 
-  | Econstr (f, expr_li) ->
+  | Econstr (f, expr_li) -> (* + ou - idem à Eappli *)
       let tf = begin try find f env with
       Not_found -> 
         Errors.localisation expr.loc;
@@ -373,9 +377,10 @@ let rec w_expr env (expr:expr) = match expr.expr_desc with
 
   | Eforcetype(e, tpe) ->
       let te = w_expr env e in
-      if cant_unify te.typ (typ_of_tpe env.type_bindings tpe) then begin
+      let expected_typ = typ_of_tpe env.type_bindings tpe in
+      if cant_unify te.typ expected_typ then begin
         Errors.localisation expr.loc;
-        eprintf "Typing error: This expression should have type Effect Unit but has type %s instead@." (string_of_typ te.typ);
+        eprintf "Typing error: This expression is said to have type %s but has type %s instead@." (string_of_typ expected_typ) (string_of_typ te.typ);
         exit 1 end;
       te
   
@@ -450,6 +455,12 @@ let rec w_expr env (expr:expr) = match expr.expr_desc with
           ;*)
 
 
+let remove_empty_arrows t = match t with
+| Tarrow([], t) -> t
+|_ -> t
+
+
+
 
 
 let rec type_decl env gdecl_li =
@@ -457,22 +468,75 @@ let rec type_decl env gdecl_li =
   | gdecl :: q -> 
     begin match gdecl.gdecl_desc with
 
-      | GDefFun(f, foralls, _, args, ret, li) -> 
-        let var_list, var_names = List.fold_left
-        (fun (var_list, var_names) a -> let tv = V.create () in tv::var_list, Smap.add a tv var_names)
-        ([], Smap.empty) foralls
+      | GDefFun(f, foralls, instances, args, ret, expr) -> (* On type la fonction et on l'ajoute à l'environement *)
+
+      (* Check pour ne pas redéfinir *)
+        begin match Smap.find_opt f env.bindings with
+          | None -> ()
+          | Some _ -> begin
+            Errors.localisation gdecl.loc;
+            eprintf "Typing error: Redefining function %s@." f;
+            exit 1 end;
+        end;
+
+          (* On récupère les foralls en leur donnant des varibles de types *)
+          let var_list, var_names = List.fold_left
+          (fun (var_list, var_names) a -> let tv = V.create () in tv::var_list, Smap.add a tv var_names)
+          ([], Smap.empty) foralls
+          in
+
+          let arg_types = List.map (typ_of_tpe var_names) args in
+          let ret_type = typ_of_tpe var_names ret in
+
+          let schema = (* shéma de type de f*)
+          {vars = Vset.of_list var_list ;
+          typ = remove_empty_arrows (Tarrow(arg_types, ret_type)) }
+          in
+
+        let bindings = (*on donne les types aux arguments @0, @1, ... @n-1  *)
+          List.fold_left2
+          begin fun bindings typ n ->
+            Smap.add (arg_name n) {typ = typ ; vars = Vset.of_list var_list} bindings
+          end
+          env.bindings arg_types (List.init (List.length arg_types) (fun x->x))
         in
-        let arg_types = List.map (typ_of_tpe var_names) args in
-        let ret_type = typ_of_tpe var_names ret in
-        let schema = 
-        {vars = Vset.of_list var_list ;
-        typ = Tarrow(arg_types, ret_type) }
-        in
-        type_equations f arg_types ret_type { bindings = Smap.add f schema env.bindings ; fvars = env.fvars; type_bindings = var_names } li ;
+        
+        (* On type l'expression *)
+        let te = w_expr { bindings = Smap.add f schema bindings ; fvars = env.fvars; type_bindings = var_names } expr in
+
+        let t = te.typ in
+        if cant_unify t ret_type then begin
+          Errors.localisation expr.loc;
+          eprintf "Typing error: Function %s should return %s, returns %s instead@." f (string_of_typ ret_type) (string_of_typ t);
+          exit 1 end;
+        
+        (* On vérifie que les variables de tpyes des foralls n'ont pas été définies *)
+
+        List.iter (* TODO: écrire le nom de la variable blutot que son id *)
+        begin fun tv -> match tv.def with
+          | Some t -> begin
+            Errors.localisation expr.loc;
+            eprintf "Typing error: Forall type variable %s was reduced to type %s in function %s@." (string_of_int tv.id) (string_of_typ t) f;
+            exit 1 end
+          | None -> ()
+        end
+        var_list;
+
         type_decl { bindings = Smap.add f schema env.bindings ; fvars = env.fvars; type_bindings = env.type_bindings } q
 
 
       | GDefData(id, foralls, constructors) ->
+
+        (* Check pour ne pas redéfinir *)
+        begin match Smap.find_opt id !datas with
+          | None -> ()
+          | Some _ -> begin
+            Errors.localisation gdecl.loc;
+            eprintf "Typing error: Redefining data type %s@." id;
+            exit 1 end;
+        end;
+
+
         let var_list, var_names = List.fold_left
         (fun (var_list, var_names) a -> let tv = V.create () in tv::var_list, Smap.add a tv var_names)
         ([], Smap.empty) foralls
@@ -493,32 +557,62 @@ let rec type_decl env gdecl_li =
         type_decl env q
 
 
+      | GDefClass(id, vars, decl_li) ->
+
+        (* Check pour ne pas redéfinir *)
+        begin match Smap.find_opt id !classes with
+          | None -> ()
+          | Some _ -> begin
+            Errors.localisation gdecl.loc;
+            eprintf "Typing error: Redefining class %s@." id;
+            exit 1 end;
+        end;
+
+
+        let var_list, var_names = List.fold_left
+        (fun (var_list, var_names) a -> let tv = V.create () in tv::var_list, Smap.add a tv var_names)
+        ([], Smap.empty) vars
+        in
+
+        (* On rajoute à l'environnement les fonction de la classe *)
+        let env = List.fold_left
+        begin fun env decl -> match decl.decl_desc with
+          | DefTypefun(f, foralls, instances, args, ret) ->
+
+            (* On récupère les foralls en leur donnant des varibles de types *)
+            let var_list, var_names = List.fold_left
+            begin fun (var_list, var_names) a ->
+              match Smap.find_opt a var_names with
+              | None -> let tv = V.create () in tv::var_list, Smap.add a tv var_names 
+              | Some _ -> var_list, var_names 
+            end
+            (var_list, var_names) foralls
+            in
+
+            let arg_types = List.map (typ_of_tpe var_names) args in
+            let ret_type = typ_of_tpe var_names ret in
+
+            let schema = (* shéma de type de la fonction*)
+            {vars = Vset.of_list var_list ;
+            typ = remove_empty_arrows (Tarrow(arg_types, ret_type)) }
+            in
+            { bindings = Smap.add f schema env.bindings ; fvars = env.fvars; type_bindings = env.type_bindings }
+          |_ -> 
+            localisation decl.loc;
+            eprintf "Typing error: Expected type declaration@."; (* Ne devrait jamais arriver *)
+            exit 1 end
+        env decl_li
+        in
+
+
+        classes := Smap.add id var_list !classes;
+
+        type_decl env q
+
+
       | _ -> type_decl env q
     end
   | [] -> ()
-and type_equations f arg_types ret_type env = function
-| (pats, e) :: q -> 
-    let env =
-    begin try List.fold_left2
-    begin fun env arg_type pat -> 
-      match pat.pattern_desc with
-      | PatVar(x) -> add false x arg_type env
-      | _ -> env
-    end
-    env arg_types pats
-    with Invalid_argument (_) -> 
-      Errors.localisation e.loc;
-      eprintf "Typing error: Wrong number of arguments in equation defining %s@." f;
-      exit 1 end
-    in
-    let te = w_expr env e in
-    let t = te.typ in
-    if cant_unify t ret_type then begin
-      Errors.localisation e.loc;
-      eprintf "Typing error: Function %s should return %s, returns %s instead@." f (string_of_typ ret_type) (string_of_typ t);
-      exit 1 end;
-      type_equations f arg_types ret_type env q
-| [] -> ()
 
 
 let type_file decl_li = 

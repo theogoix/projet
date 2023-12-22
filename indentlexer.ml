@@ -162,8 +162,8 @@ let token buf =
     let tok = Lexer.token buf in
     let pos = Lexing.lexeme_start_p buf in
     let c = pos.pos_cnum - pos.pos_bol + 1 in
+    (*print_endline (token_to_str tok ^ string_of_int c);*)  (*for debbuging*)
     find_tokens tok pos c buf false
   else () ;
   let tok = Queue.take token_queue in
-  (*print_endline (token_to_str tok);*)  (*for debbuging*)
   tok
