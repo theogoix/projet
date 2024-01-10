@@ -20,6 +20,8 @@ let rec compile_expr t_expr = match t_expr.expr_desc with
       | Cbool b -> movq (imm (if b then 1 else 0)) !%rax
       | _ -> nop
     end
+  | TEvar loc ->
+    movq (ind ~ofs:loc rbp) !%rax
   | TEbinop(op,e1,e2) -> 
     compile_expr e1 ++
     pushq !%rax ++
@@ -27,10 +29,20 @@ let rec compile_expr t_expr = match t_expr.expr_desc with
     popq rbx ++
     begin match op with
       | Add -> addq !%rbx !%rax
-      | Sub -> subq !%rbx !%rax
+      | Sub -> subq !%rax !%rbx ++ movq !%rbx !%rax
       | Mul -> imulq !%rbx !%rax
       | _ -> nop
     end
+  | TElet(t_bind_li,e) ->
+    (List.fold_left
+    begin fun text bind ->
+      let loc, e = bind in
+        text ++
+        compile_expr e ++
+        movq !%rax (ind ~ofs:loc rbp)
+    end
+    nop t_bind_li) ++
+    compile_expr e
   | TEcase(li, branches) ->
     begin match branches with 
       | (_, e) :: [] -> compile_expr e
@@ -40,9 +52,12 @@ let rec compile_expr t_expr = match t_expr.expr_desc with
 
 
 let compile_fun f = 
-  let (id, n_arg, e) = f in
+  let (id, n_arg, n_alloc, e) = f in
   label id ++
+  pushq !%rbp ++
+  subq !%rsp (imm (8*n_alloc)) ++
   compile_expr e ++
+  leave ++
   ret
 
 

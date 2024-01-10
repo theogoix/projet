@@ -83,3 +83,12 @@ let rec string_of_typ_shovars typ = match typ with
     | Some t -> "(Var " ^ string_of_int v.id ^ " = " ^ string_of_typ_shovars t ^ ")"
 
 let string_of_typ = string_of_typ_shovars;;
+
+
+
+
+
+
+
+
+

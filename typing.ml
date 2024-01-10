@@ -78,11 +78,11 @@ let norm_varset s =
 
 module Smap = Map.Make(String)
 
-type env = { bindings : schema Smap.t; fvars : Vset.t; type_bindings : tvar Smap.t }
+type env = { bindings : schema Smap.t; locations: int Smap.t; fvars : Vset.t; type_bindings : tvar Smap.t }
 
-let empty = { bindings = Smap.empty; fvars = Vset.empty; type_bindings = Smap.empty }
+let empty = { bindings = Smap.empty; locations = Smap.empty; fvars = Vset.empty; type_bindings = Smap.empty }
 
-let add gen x t env =
+let add gen x t loc env = (*rajoute une variable à l'environement, avec une position loc si loc != 0*)
   let vt = fvars t in
   let s, fvars =
     if gen then
@@ -91,9 +91,12 @@ let add gen x t env =
     else
       { vars = Vset.empty; typ = t }, Vset.union env.fvars vt
   in
-  { bindings = Smap.add x s env.bindings; fvars = fvars; type_bindings = env.type_bindings }
+  if loc = 0 then
+    { bindings = Smap.add x s env.bindings; locations = env.locations; fvars = fvars; type_bindings = env.type_bindings }
+  else
+    { bindings = Smap.add x s env.bindings; locations = Smap.add x loc env.locations; fvars = fvars; type_bindings = env.type_bindings }
 
-let add_tvar x tv env = { bindings = env.bindings; fvars = env.fvars; type_bindings = Smap.add x tv env.type_bindings }
+let add_tvar x tv env = { bindings = env.bindings; locations = env.locations; fvars = env.fvars; type_bindings = Smap.add x tv env.type_bindings }
 
 
 module Vmap = Map.Make(V)
@@ -116,8 +119,6 @@ let find x env =
     | Tproduct (t1, t2) -> Tproduct (subst t1, subst t2)
   in
   subst tx.typ
-
-
 
 
 
@@ -159,35 +160,36 @@ let rec typ_of_tpe var_names tpe = match tpe.tpe_desc with
 
 
 
-let rec type_pattern env pat = match pat.pattern_desc with
-| PatConstant(Cint(_)) -> Tint, env
-| PatConstant(Cbool(_)) -> Tbool, env
-| PatConstant(Cstring(_)) -> Tstring, env
-| PatVar(x) -> let tv = V.create() in Tvar(tv), add false x (Tvar tv) env
+let rec type_pattern env alloc_number pat = match pat.pattern_desc with
+| PatConstant(Cint(_)) -> Tint, env, alloc_number
+| PatConstant(Cbool(_)) -> Tbool, env, alloc_number
+| PatConstant(Cstring(_)) -> Tstring, env, alloc_number
+| PatVar(x) -> let tv = V.create() in Tvar(tv), add false x (Tvar tv) (-8 - 8*alloc_number) env, alloc_number+1
 | PatConstructor(f, pat_li) -> 
     let tf = find f env in
     begin match tf with
       | Tarrow (typ_li, t_ret) ->
-        let env = List.fold_left2
-        begin fun env typ pat -> 
-          let t_pat, env = type_pattern env pat in
+        let env, alloc_number = List.fold_left2
+        begin fun acc typ pat -> 
+          let env, alloc_number = acc in
+          let t_pat, env, alloc_number = type_pattern env alloc_number pat in
           if cant_unify t_pat typ then begin
             Errors.localisation pat.loc;
             eprintf "Typing error: This pattern should have type %s but has type %s instead@." (string_of_typ typ) (string_of_typ t_pat);
             exit 1 end;
-          env
+          env, alloc_number
         end
-        env typ_li pat_li in
-        t_ret, env
+        (env, alloc_number) typ_li pat_li in
+        t_ret, env, alloc_number
        |_ -> failwith "oups" end
 
 
 
-(* algorithme W *)
-let rec w_expr env (expr:expr) = match expr.expr_desc with
+(* "algorithme W" + allocation mémoire *)
+let rec w_expr env (expr:expr) alloc_number = match expr.expr_desc with
 
   | Evar x ->
-      begin try texpr (TEvar x) expr.loc (find x env) with
+      begin try texpr (TEvar (Smap.find x env.locations)) expr.loc (find x env), alloc_number with
       Not_found -> 
         Errors.localisation expr.loc;
         eprintf "Typing error: Unkown variable %s@." x;
@@ -200,12 +202,12 @@ let rec w_expr env (expr:expr) = match expr.expr_desc with
         | Cint _ -> Tint
         | Cstring _ -> Tstring
       end in
-      texpr (TEcst c) expr.loc t
+      texpr (TEcst c) expr.loc t, 0
 
 
   | Ebinop (op, e1, e2) -> 
-      let te1 = w_expr env e1 in
-      let te2 = w_expr env e2 in
+      let te1, alloc_number1 = w_expr env e1 alloc_number in
+      let te2, alloc_number2 = w_expr env e2 alloc_number in
       let t1 = te1.typ in
       let t2 = te2.typ in
       let t = begin match op with
@@ -260,18 +262,18 @@ let rec w_expr env (expr:expr) = match expr.expr_desc with
             exit 1 end;
           Tbool
         end in
-      texpr (TEbinop (op, te1, te2)) expr.loc t
+      texpr (TEbinop (op, te1, te2)) expr.loc t, max alloc_number1 alloc_number2
 
 
   | Eif (e1,e2,e3) -> 
-      let te1 = w_expr env e1 in
+      let te1, alloc_number1 = w_expr env e1 alloc_number in
       let t1 = te1.typ in
       if cant_unify Tbool t1 then begin 
         Errors.localisation e1.loc;
         eprintf "Typing error : Type bool expected, got type %s@." (string_of_typ t1);
         exit 1 end;
-      let te2 = w_expr env e2 in
-      let te3 = w_expr env e3 in
+      let te2, alloc_number2 = w_expr env e2 alloc_number in
+      let te3, alloc_number3 = w_expr env e3 alloc_number in
       let t2 = te2.typ in
       let t3 = te3.typ in
       if cant_unify t2 t3 then begin 
@@ -279,7 +281,7 @@ let rec w_expr env (expr:expr) = match expr.expr_desc with
         Errors.localisation e3.loc;
         eprintf "Typing error : both branches of if ... else should have same type but got %s and %s instead@." (string_of_typ t2) (string_of_typ t3);
         exit 1 end; 
-      texpr (TEif (te1, te2, te3)) expr.loc t2
+      texpr (TEif (te1, te2, te3)) expr.loc t2, max (max alloc_number1 alloc_number2) alloc_number3
 
 
   | Eappli (f, expr_li) ->
@@ -291,22 +293,23 @@ let rec w_expr env (expr:expr) = match expr.expr_desc with
       in
       begin match tf with
       | Tarrow (typ_li, t_ret) ->
-        let check te_li e expected_t =
-          let te = w_expr env e in
+        let check acc e expected_t =
+          let te_li, alloc_number = acc in
+          let te, alloc_number1 = w_expr env e alloc_number in
           let t = te.typ in
           if cant_unify t expected_t then begin
             Errors.localisation e.loc;
             eprintf "Typing error: Type %s expected, got type %s@." (string_of_typ t) (string_of_typ expected_t);
             exit 1 end;
-          te::te_li
+          te::te_li, max alloc_number alloc_number1
         in
-        let li = begin try List.fold_left2 check [] expr_li typ_li with
+        let li, alloc_number = begin try List.fold_left2 check ([], alloc_number) expr_li typ_li with
           Invalid_argument(_) ->
             Errors.localisation expr.loc;
             eprintf "Typing error: Wrong number of argument for function %s@." f;
             exit 1
         end in
-        texpr (TEappli(f, li)) expr.loc t_ret
+        texpr (TEappli(f, li)) expr.loc t_ret, alloc_number
       | _ -> 
         Errors.localisation expr.loc;
         eprintf "Typing error: Trying to apply variable %s which is not a function@." f;
@@ -323,22 +326,23 @@ let rec w_expr env (expr:expr) = match expr.expr_desc with
       in
       begin match tf with
       | Tarrow (typ_li, t_ret) ->
-        let check te_li e expected_t =
-          let te = w_expr env e in
+        let check acc e expected_t =
+          let te_li, alloc_number = acc in
+          let te, alloc_number1 = w_expr env e alloc_number in
           let t = te.typ in
           if cant_unify t expected_t then begin
             Errors.localisation e.loc;
             eprintf "Typing error: Type %s expected, got type %s@." (string_of_typ t) (string_of_typ expected_t);
             exit 1 end;
-          te::te_li
+          te::te_li, max alloc_number alloc_number1
         in
-        let li = begin try List.fold_left2 check [] expr_li typ_li with
+        let li, alloc_number = begin try List.fold_left2 check ([], alloc_number) expr_li typ_li with
           Invalid_argument(_) ->
             Errors.localisation expr.loc;
             eprintf "Typing error: Wrong number of argument for constructor %s@." f;
             exit 1
         end in
-        texpr (TEappli(f, li)) expr.loc t_ret
+        texpr (TEappli(f, li)) expr.loc t_ret, alloc_number
       | _ -> 
         Errors.localisation expr.loc;
         eprintf "Typing error: Trying to apply variable %s which is not a constructor@." f;
@@ -347,64 +351,79 @@ let rec w_expr env (expr:expr) = match expr.expr_desc with
 
 
   | Edo (li) -> 
-    let te_li = List.fold_left
-    begin fun te_li e ->
-      let te = w_expr env e in 
+    let te_li, alloc_number = List.fold_left
+    begin fun acc e ->
+      let te_li, alloc_number = acc in
+      let te, alloc_number1 = w_expr env e alloc_number in 
       let t = te.typ in 
       if cant_unify (Tdata("Effect", [Tunit])) t then begin
         Errors.localisation e.loc;
         eprintf "Typing error: This expression should have type Effect Unit but has type %s instead@." (string_of_typ t);
         exit 1 end;
-      te::te_li
+      te::te_li, max alloc_number alloc_number1
     end
-    [] li in
-    texpr (TEdo(te_li)) expr.loc (Tdata("Effect", [Tunit]))
+    ([], 0) li in
+    texpr (TEdo(te_li)) expr.loc (Tdata("Effect", [Tunit])), alloc_number
 
 
   | Elet (bind_li, e) ->
 
-      let tbind_of_bind_aux tbind_li (bind:bind) = let (x, e) = bind in (x, w_expr env e):: tbind_li in
-      let tbind_li = List.fold_left tbind_of_bind_aux [] bind_li in (*On transfomre tous les bindings en bindings typés *)
 
-      let add_binding_gen env bind = 
+      let add_binding_gen acc bind = 
+        let tbind_li, env, alloc_number, max_alloc_number = acc in
         let x, e = bind in
-        let t = (w_expr env e).typ in
-        add true x t env 
+        let te, alloc_number1 = w_expr env e alloc_number in
+        let t = te.typ in
+        let env = add true x t (-8 - 8*alloc_number) env in
+        (-8 - 8*alloc_number, te)::tbind_li,
+        env,
+        alloc_number+1,
+        max max_alloc_number alloc_number1
       in
-      let te = w_expr (List.fold_left add_binding_gen env bind_li) e in
-      texpr (TElet(tbind_li, te)) expr.loc te.typ
+      let tbind_li, env, alloc_number, max_alloc_number = List.fold_left add_binding_gen ([], env, alloc_number, alloc_number) bind_li in
+      let te, alloc_number1 = w_expr env e alloc_number in
+      texpr (TElet(tbind_li, te)) expr.loc te.typ, max max_alloc_number alloc_number1
 
 
   | Eforcetype(e, tpe) ->
-      let te = w_expr env e in
+      let te, alloc_number = w_expr env e alloc_number in
       let expected_typ = typ_of_tpe env.type_bindings tpe in
       if cant_unify te.typ expected_typ then begin
         Errors.localisation expr.loc;
         eprintf "Typing error: This expression is said to have type %s but has type %s instead@." (string_of_typ expected_typ) (string_of_typ te.typ);
         exit 1 end;
-      te
+      te, alloc_number
   
   
   | Ecase(expr_li, branch_li) ->
-      let texpr_li = List.map
-      (w_expr env)
+      let texpr_li, max_alloc_number = List.fold_left
+      begin fun acc e ->
+        let (texpr_li, max_alloc_number) = acc in
+        let te, alloc_number1 = w_expr env e alloc_number in
+        te::texpr_li, max max_alloc_number alloc_number1
+      end
+      ([], alloc_number)
       expr_li in
 
-      let tbranch_li = List.map
-      begin fun branch ->
+      let tbranch_li, max_alloc_number = List.fold_left
+      begin fun acc branch ->
+        let tbranch_li, max_alloc_number = acc in
         let pats, e = branch in
-        let env = List.fold_left2
-        begin fun env pat (te:t_expr) ->
-          let pat_type, env = type_pattern env pat in
+        let env, alloc_number = List.fold_left2
+        begin fun acc pat (te:t_expr) ->
+          let env, alloc_number = acc in
+          let pat_type, env, alloc_number = type_pattern env alloc_number pat in
           if cant_unify pat_type te.typ then begin
             Errors.localisation expr.loc;
             eprintf "Typing error: This pattern has type %s but should have type %s@." (string_of_typ pat_type) (string_of_typ te.typ);
             exit 1 end;
-          env
+          env, alloc_number
         end
-        env pats texpr_li in 
-        pats, w_expr env e
+        (env, alloc_number) pats texpr_li in 
+        let te, alloc_number = w_expr env e alloc_number in
+        (pats, te)::tbranch_li, max max_alloc_number alloc_number
       end
+      ([], max_alloc_number)
       branch_li 
       in
 
@@ -426,7 +445,7 @@ let rec w_expr env (expr:expr) = match expr.expr_desc with
               exit 1 end
               )
           q;
-          texpr (TEcase(texpr_li, tbranch_li)) expr.loc t1
+          texpr (TEcase(texpr_li, tbranch_li)) expr.loc t1, max_alloc_number
 
 
 
@@ -493,16 +512,18 @@ let rec type_decl env gdecl_li =
           typ = remove_empty_arrows (Tarrow(arg_types, ret_type)) }
           in
 
-        let bindings = (*on donne les types aux arguments @0, @1, ... @n-1  *)
+        let bindings, locations = (*on donne les types et les location aux arguments @0, @1, ... @n-1  *)
           List.fold_left2
-          begin fun bindings typ n ->
-            Smap.add (arg_name n) {typ = typ ; vars = Vset.of_list var_list} bindings
+          begin fun acc typ n ->
+            let bindings, locations = acc in
+            Smap.add (arg_name n) {typ = typ ; vars = Vset.of_list var_list} bindings,
+            Smap.add (arg_name n) (16 + 8*n) locations
           end
-          env.bindings arg_types (List.init (List.length arg_types) (fun x->x))
+          (env.bindings, env.locations) arg_types (List.init (List.length arg_types) (fun x->x))
         in
         
         (* On type l'expression *)
-        let te = w_expr { bindings = Smap.add f schema bindings ; fvars = env.fvars; type_bindings = var_names } expr in
+        let te, alloc_number = w_expr { bindings = Smap.add f schema bindings; locations = locations ; fvars = env.fvars; type_bindings = var_names } expr 0 in
 
         let t = te.typ in
         if cant_unify t ret_type then begin
@@ -522,7 +543,7 @@ let rec type_decl env gdecl_li =
         end
         var_list;
 
-        ((f, List.length args, te): t_fun) :: type_decl { bindings = Smap.add f schema env.bindings ; fvars = env.fvars; type_bindings = env.type_bindings } q
+        ((f, List.length args, alloc_number, te): t_fun) :: type_decl { bindings = Smap.add f schema env.bindings ; locations = env.locations ; fvars = env.fvars; type_bindings = env.type_bindings } q
 
 
       | GDefData(id, foralls, constructors) ->
@@ -551,7 +572,7 @@ let rec type_decl env gdecl_li =
           {vars = Vset.of_list var_list ;
           typ = Tarrow(arg_types, ret_type) }
           in
-          { bindings = Smap.add cid schema env.bindings ; fvars = env.fvars; type_bindings = env.type_bindings }
+          { bindings = Smap.add cid schema env.bindings ; locations = env.locations ; fvars = env.fvars; type_bindings = env.type_bindings }
         end
         env constructors in
         type_decl env q
@@ -596,7 +617,7 @@ let rec type_decl env gdecl_li =
             {vars = Vset.of_list var_list ;
             typ = remove_empty_arrows (Tarrow(arg_types, ret_type)) }
             in
-            { bindings = Smap.add f schema env.bindings ; fvars = env.fvars; type_bindings = env.type_bindings }
+            { bindings = Smap.add f schema env.bindings ; locations = env.locations ; fvars = env.fvars; type_bindings = env.type_bindings }
           |_ -> 
             localisation decl.loc;
             eprintf "Typing error: Expected type declaration@."; (* Ne devrait jamais arriver *)
@@ -625,6 +646,6 @@ let type_file decl_li =
                   |> add "mod" { vars = Vset.empty; typ = Tarrow([Tint; Tint], Tint) }
                   |> add "unit" { vars = Vset.empty; typ = Tunit }
                   |> add "pure" { vars = Vset.singleton a; typ = Tarrow([Tvar(a)], Tdata("Effect", [Tvar(a)])) } );
-    fvars = Vset.empty; type_bindings = Smap.empty } 
+    locations = Smap.empty; fvars = Vset.empty; type_bindings = Smap.empty } 
   in
   type_decl env decl_li

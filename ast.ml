@@ -63,7 +63,7 @@ and gdecl = {gdecl_desc : gdecl_desc ; loc : position*position}
 
 type t_expr_desc =
   | TEcst          of constant
-  | TEvar          of string
+  | TEvar          of int
   | TEbinop        of binop * t_expr * t_expr
   | TEif           of t_expr * t_expr * t_expr
   | TEdo           of t_expr list
@@ -74,10 +74,10 @@ type t_expr_desc =
   | TEgetconstr    of t_expr
   | TEgetarg       of t_expr * int
 and t_expr = {expr_desc : t_expr_desc ; loc : position*position; typ : Typing_def.typ}
-and t_bind = string * t_expr
+and t_bind = int * t_expr
 
-type t_fun = string * int * t_expr
-            (*nom * nb d'arg * expr*)
+type t_fun = string * int * int * t_expr
+        (*nom * nb d'arg * nb d'alloc * expr*)
 
 type t_program = t_fun list
 
