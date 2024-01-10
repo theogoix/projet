@@ -522,7 +522,7 @@ let rec type_decl env gdecl_li =
         end
         var_list;
 
-        type_decl { bindings = Smap.add f schema env.bindings ; fvars = env.fvars; type_bindings = env.type_bindings } q
+        ((f, List.length args, te): t_fun) :: type_decl { bindings = Smap.add f schema env.bindings ; fvars = env.fvars; type_bindings = env.type_bindings } q
 
 
       | GDefData(id, foralls, constructors) ->
@@ -612,7 +612,7 @@ let rec type_decl env gdecl_li =
 
       | _ -> type_decl env q
     end
-  | [] -> ()
+  | [] -> []
 
 
 let type_file decl_li = 
@@ -620,6 +620,7 @@ let type_file decl_li =
   let env = {
     bindings = 
       Smap.(empty |> add "log" { vars = Vset.empty; typ = Tarrow([Tstring], Tdata("Effect", [Tunit])) }
+                  |> add "print_int" { vars = Vset.empty; typ = Tarrow([Tint], Tdata("Effect", [Tunit])) } (* pour tester, TODO: trouver comment marchent les strings*)
                   |> add "not" { vars = Vset.empty; typ = Tarrow([Tbool], Tbool) }
                   |> add "mod" { vars = Vset.empty; typ = Tarrow([Tint; Tint], Tint) }
                   |> add "unit" { vars = Vset.empty; typ = Tunit }

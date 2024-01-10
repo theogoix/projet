@@ -8,6 +8,7 @@ open Format
 open Lexing
 open Indentlexer
 open Errors
+open Production
 
 
 (* name of the file to compile *)
@@ -83,9 +84,18 @@ let () =
 
     let gdecl_li = group_fun decl_li in ();
 
-    type_file gdecl_li;
+    let program = type_file gdecl_li in
 
     print_endline "Successful typing";
+
+
+
+
+    (*code production*)
+
+    let ofile = Filename.chop_suffix !ifile ".purs" ^ ".s" in
+    
+    compile_program program ofile;
 
     exit 0
 

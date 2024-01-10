@@ -76,5 +76,8 @@ type t_expr_desc =
 and t_expr = {expr_desc : t_expr_desc ; loc : position*position; typ : Typing_def.typ}
 and t_bind = string * t_expr
 
+type t_fun = string * int * t_expr
+            (*nom * nb d'arg * expr*)
 
+type t_program = t_fun list
 
