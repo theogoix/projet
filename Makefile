@@ -1,6 +1,8 @@
 
 all: ppurs.exe
 	dune exec ./ppurs.exe test.purs
+	gcc -no-pie test.s -o test
+	./test
 
 
 #tests: ppurs.exe

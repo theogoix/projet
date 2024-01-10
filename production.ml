@@ -13,7 +13,7 @@ open X86_64
 
 
 (* Le code d'une expression doit renvoyer son résultat dans %rax *)
-let rec compile_expr t_expr = match t_expr.expr_desc with
+let rec compile_expr t_expr aligned = match t_expr.expr_desc with
   | TEcst c ->  
     begin match c with
       | Cint n -> movq (imm n) !%rax
@@ -23,9 +23,9 @@ let rec compile_expr t_expr = match t_expr.expr_desc with
   | TEvar loc ->
     movq (ind ~ofs:loc rbp) !%rax
   | TEbinop(op,e1,e2) -> 
-    compile_expr e1 ++
+    compile_expr e1 aligned ++
     pushq !%rax ++
-    compile_expr e2 ++
+    compile_expr e2 (not aligned) ++
     popq rbx ++
     begin match op with
       | Add -> addq !%rbx !%rax
@@ -33,21 +33,37 @@ let rec compile_expr t_expr = match t_expr.expr_desc with
       | Mul -> imulq !%rbx !%rax
       | _ -> nop
     end
-  | TElet(t_bind_li,e) ->
-    (List.fold_left
-    begin fun text bind ->
+  | TElet(bind_li,e) ->
+    let text, aligned = (List.fold_left
+    begin fun acc bind ->
+      let text, aligned = acc in
       let loc, e = bind in
-        text ++
-        compile_expr e ++
-        movq !%rax (ind ~ofs:loc rbp)
+        (text ++
+        compile_expr e aligned ++
+        movq !%rax (ind ~ofs:loc rbp),
+        not aligned)
     end
-    nop t_bind_li) ++
-    compile_expr e
+    (nop, aligned) (List.rev bind_li))
+    in
+    text ++
+    compile_expr e aligned
   | TEcase(li, branches) ->
     begin match branches with 
-      | (_, e) :: [] -> compile_expr e
+      | (_, e) :: [] -> compile_expr e aligned
       | _ -> nop
     end
+  | TEappli(label, expr_li) ->
+    (if not aligned then subq (imm 8) !%rsp else nop) ++
+    (List.fold_left
+    begin fun text e ->
+      text ++
+      compile_expr e aligned ++
+      pushq !%rax
+    end
+    nop expr_li) ++
+    call label ++
+    addq (imm (8*List.length expr_li)) !%rsp ++
+    (if not aligned then addq (imm 8) !%rsp else nop)
   | _ -> nop
 
 
@@ -55,8 +71,9 @@ let compile_fun f =
   let (id, n_arg, n_alloc, e) = f in
   label id ++
   pushq !%rbp ++
-  subq !%rsp (imm (8*n_alloc)) ++
-  compile_expr e ++
+  movq !%rsp !%rbp ++
+  subq (imm (8*n_alloc)) !%rsp ++
+  compile_expr e false ++
   leave ++
   ret
 
@@ -71,17 +88,25 @@ let compile_program program ofile =
   in
   let p =
     { text =
-        globl "main" ++ label "main" ++
+        globl "main" ++
+        (*label "main" ++
         movq !%rsp !%rbp ++
-        (*code ++*)
+        code ++
         movq (imm 0) !%rax ++ (* exit *)
-        ret ++
+        ret ++*)
+
+
         label "print_int" ++
-        movq !%rdi !%rsi ++
+        pushq !%rbp ++
+        movq !%rsp !%rbp ++
+        movq (ind ~ofs:16 rbp) !%rsi ++
         movq (ilab ".Sprint_int") !%rdi ++
         movq (imm 0) !%rax ++
         call "printf" ++
+        leave ++
         ret ++
+
+
         codefun;
       data = label ".Sprint_int" ++ string "%d\n"
         (*Hashtbl.fold (fun x _ l -> label x ++ dquad [1] ++ l) genv
