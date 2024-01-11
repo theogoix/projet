@@ -642,6 +642,7 @@ let type_file decl_li =
     bindings = 
       Smap.(empty |> add "log" { vars = Vset.empty; typ = Tarrow([Tstring], Tdata("Effect", [Tunit])) }
                   |> add "print_int" { vars = Vset.empty; typ = Tarrow([Tint], Tdata("Effect", [Tunit])) } (* pour tester, TODO: trouver comment marchent les strings*)
+                  |> add "print_bool" { vars = Vset.empty; typ = Tarrow([Tbool], Tdata("Effect", [Tunit])) }
                   |> add "not" { vars = Vset.empty; typ = Tarrow([Tbool], Tbool) }
                   |> add "mod" { vars = Vset.empty; typ = Tarrow([Tint; Tint], Tint) }
                   |> add "unit" { vars = Vset.empty; typ = Tunit }
