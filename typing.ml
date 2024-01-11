@@ -262,7 +262,12 @@ let rec w_expr env (expr:expr) alloc_number = match expr.expr_desc with
             exit 1 end;
           Tbool
         end in
-      texpr (TEbinop (op, te1, te2)) expr.loc t, max alloc_number1 alloc_number2
+      if op = Conc then
+        texpr (TEappli("Concat", [te1; te2])) expr.loc t, max alloc_number1 alloc_number2
+      else if op = Eq && not (cant_unify t1 Tstring) then
+          texpr (TEappli("StrEq", [te1; te2])) expr.loc t, max alloc_number1 alloc_number2
+      else
+        texpr (TEbinop (op, te1, te2)) expr.loc t, max alloc_number1 alloc_number2
 
 
   | Eif (e1,e2,e3) -> 
@@ -645,6 +650,7 @@ let type_file decl_li =
                   |> add "print_bool" { vars = Vset.empty; typ = Tarrow([Tbool], Tdata("Effect", [Tunit])) }
                   |> add "not" { vars = Vset.empty; typ = Tarrow([Tbool], Tbool) }
                   |> add "mod" { vars = Vset.empty; typ = Tarrow([Tint; Tint], Tint) }
+                  |> add "len" { vars = Vset.empty; typ = Tarrow([Tstring], Tint) }
                   |> add "unit" { vars = Vset.empty; typ = Tunit }
                   |> add "pure" { vars = Vset.singleton a; typ = Tarrow([Tvar(a)], Tdata("Effect", [Tvar(a)])) } );
     locations = Smap.empty; fvars = Vset.empty; type_bindings = Smap.empty } 

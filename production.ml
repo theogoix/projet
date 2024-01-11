@@ -10,6 +10,13 @@ open Indentlexer
 open Errors
 open X86_64
 
+
+let align_stack = 
+  (movq (imm 8) !%rdx ++
+  notq !%rdx ++
+  andq !%rdx !%rsp);;
+
+
 let if_counter = ref 0;;
 let str_counter = ref 0;; (* strings dans le segment de données*)
 
@@ -29,7 +36,7 @@ let get_str_label () =
 
 
 (* Le code d'une expression doit renvoyer son résultat dans %rax *)
-let rec compile_expr t_expr aligned = match t_expr.expr_desc with
+let rec compile_expr t_expr = match t_expr.expr_desc with
   | TEcst c ->  
     begin match c with
       | Cint n -> movq (imm n) !%rax
@@ -44,16 +51,16 @@ let rec compile_expr t_expr aligned = match t_expr.expr_desc with
   | TEvar loc ->
     movq (ind ~ofs:loc rbp) !%rax
   | TEbinop(op,e1,e2) -> 
-    compile_expr e1 aligned ++
+    compile_expr e1 ++
     pushq !%rax ++
-    compile_expr e2 (not aligned) ++
+    compile_expr e2 ++
     popq rbx ++
     begin match op with
       | Add -> addq !%rbx !%rax
       | Sub -> subq !%rax !%rbx ++
                movq !%rbx !%rax
       | Mul -> imulq !%rbx !%rax
-      | Eq -> xorq !%rcx !%rcx ++ (* TODO: Faire marcher le Eq pour les strings *)
+      | Eq -> xorq !%rcx !%rcx ++ (* = entre strings géré dans la fonction StrEq*)
               cmpq !%rax !%rbx ++
               sete !%cl ++
               movq !%rcx !%rax
@@ -86,49 +93,45 @@ let rec compile_expr t_expr aligned = match t_expr.expr_desc with
     begin fun text bind ->
       let loc, e = bind in
         text ++
-        compile_expr e aligned ++
+        compile_expr e ++
         movq !%rax (ind ~ofs:loc rbp)
     end
     nop (List.rev bind_li))
     in
     text ++
-    compile_expr e aligned
+    compile_expr e
   | TEdo(expr_li) ->
     List.fold_left
     begin fun text e ->
-      compile_expr e aligned ++
+      compile_expr e ++
       text
     end
     nop expr_li
   | TEif(e1, e2, e3) ->
     let lab1, lab2 = get_if_label () in
-    compile_expr e1 aligned ++
+    compile_expr e1 ++
     testq !%rax !%rax ++
     je lab1 ++
-    compile_expr e2 aligned ++
+    compile_expr e2 ++
     jmp lab2 ++
     label lab1 ++
-    compile_expr e3 aligned ++
+    compile_expr e3 ++
     label lab2
   | TEcase(li, branches) ->
     begin match branches with 
-      | (_, e) :: [] -> compile_expr e aligned
+      | (_, e) :: [] -> compile_expr e
       | _ -> nop
     end
   | TEappli(label, expr_li) ->
-    (if aligned != ((List.length expr_li) mod 2 = 0) then subq (imm 8) !%rsp else nop) ++
-    let temp_aligned = ref ((List.length expr_li) mod 2 = 0) in
     (List.fold_left
     begin fun text e ->
-      temp_aligned := not !temp_aligned;
-      text ++
-      compile_expr e (not !temp_aligned) ++
-      pushq !%rax
+      compile_expr e ++
+      pushq !%rax ++
+      text
     end
     nop expr_li) ++
     call label ++
-    addq (imm (8*List.length expr_li)) !%rsp ++
-    (if aligned != ((List.length expr_li) mod 2 = 0) then addq (imm 8) !%rsp else nop)
+    addq (imm (8*List.length expr_li)) !%rsp
   | _ -> nop
 
 
@@ -138,7 +141,7 @@ let compile_fun f =
   pushq !%rbp ++
   movq !%rsp !%rbp ++
   subq (imm (8*n_alloc)) !%rsp ++
-  compile_expr e (n_alloc mod 2 = 0) ++
+  compile_expr e ++
   leave ++
   ret
 
@@ -164,6 +167,7 @@ let compile_program program ofile =
         label "print_int" ++
         pushq !%rbp ++
         movq !%rsp !%rbp ++
+        align_stack ++
         movq (ind ~ofs:16 rbp) !%rsi ++
         movq (ilab ".Sprint_int") !%rdi ++
         movq (imm 0) !%rax ++
@@ -175,6 +179,7 @@ let compile_program program ofile =
         label "print_bool" ++
         pushq !%rbp ++
         movq !%rsp !%rbp ++
+        align_stack ++
         movq (ind ~ofs:16 rbp) !%rsi ++
         movq (ilab ".Sprint_int") !%rdi ++
         movq (imm 0) !%rax ++
@@ -182,15 +187,119 @@ let compile_program program ofile =
         leave ++
         ret ++
 
+
         label "log" ++
+
         pushq !%rbp ++
         movq !%rsp !%rbp ++
+
+        align_stack ++
+
         movq (ind ~ofs:16 rbp) !%rsi ++
         movq (ilab ".Sprint_str") !%rdi ++
         call "printf" ++
+
+        movq (imm 0) !%rax ++
+        
+        leave ++
+        ret ++
+
+
+        label "not" ++
+        pushq !%rbp ++
+        movq !%rsp !%rbp ++
+        movq (ind ~ofs:16 rbp) !%rbx ++
+        movq (imm 1) !%rax ++
+        subq !%rbx !%rax ++
+        leave ++
+        ret ++
+
+
+        label "Concat" ++
+        pushq !%rbp ++
+        movq !%rsp !%rbp ++
+        align_stack ++
+
+        movq (ind ~ofs:16 rbp) !%rdi ++ (*calcul de la mémoire requise*)
+        call "strlen" ++
+        movq !%rax !%r12 ++
+        movq !%rax !%r13 ++
+        movq (ind ~ofs:24 rbp) !%rdi ++
+        call "strlen" ++
+        addq !%rax !%r12 ++
+        incq !%r12 ++
+
+        movq !%r12 !%rdi ++ (*allocation*)
+        call "malloc" ++
+        movq !%rax !%rbx ++
+
+        movq !%rbx !%rdi ++
+        movq (ind ~ofs:16 rbp) !%rsi ++
+        call "strcpy" ++
+
+        movq !%rbx !%rdi ++
+        addq !%r13 !%rdi ++
+        movq (ind ~ofs:24 rbp) !%rsi ++
+        call "strcpy" ++
+
+        movq !%rbx !%rax ++
+
+        leave ++
+        ret ++
+
+
+        label "len" ++
+        pushq !%rbp ++
+        movq !%rsp !%rbp ++
+        align_stack ++
+
+        movq (ind ~ofs:16 rbp) !%rdi ++
+        call "strlen" ++
+
+        leave ++
+        ret ++
+
+
+        label "StrEq" ++
+        pushq !%rbp ++
+        movq !%rsp !%rbp ++
+        align_stack ++
+
+        movq (ind ~ofs:16 rbp) !%rdi ++
+        movq !%rdi !%rbx ++
+        call "strlen" ++
+        movq !%rax !%r12 ++
+
+        movq (ind ~ofs:24 rbp) !%rdi ++
+        movq !%rdi !%rcx ++
+        call "strlen" ++
+
+        cmpq !%r12 !%rax ++ (*même longeur*)
+        jne "StrEq_No" ++
+
+        label "StrEq_Loop" ++
+
+        movb (ind rbx) !%al ++
+        cmpb !%al (ind rcx) ++
+        jne "StrEq_No" ++
+
+        incq !%rbx ++
+        incq !%rcx ++
+
+        cmpb (imm 0) (ind rbx) ++
+
+        jne "StrEq_Loop" ++
+
+        movq (imm 1) !%rax ++
+        leave ++
+        ret ++
+
+        label "StrEq_No" ++
         movq (imm 0) !%rax ++
         leave ++
         ret ++
+
+
 
         codefun;
         
