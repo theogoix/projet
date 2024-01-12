@@ -19,13 +19,14 @@ let align_stack =
 
 let if_counter = ref 0;;
 let str_counter = ref 0;; (* strings dans le segment de données*)
+let switch_counter = ref 0;;
 
 let data = ref (label ".Sprint_int" ++
                 string "%d\n" ++
                 label ".Sprint_str" ++
                 string "%s\n");;
 
-let get_if_label () =
+let get_if_labels () =
   incr if_counter;
   "IF_" ^ string_of_int !if_counter,
   "ENDIF_" ^ string_of_int !if_counter;;
@@ -33,6 +34,11 @@ let get_if_label () =
 let get_str_label () =
   incr str_counter;
   ".STR_" ^ string_of_int !str_counter;;
+
+let get_switch_labels n =
+  incr switch_counter;
+  List.init n (fun i -> "SWITCH_" ^ string_of_int !switch_counter ^ "_" ^ string_of_int i),
+  "ENDSWITCH_" ^ string_of_int !switch_counter;;
 
 
 (* Le code d'une expression doit renvoyer son résultat dans %rax *)
@@ -108,7 +114,7 @@ let rec compile_expr t_expr = match t_expr.expr_desc with
     end
     nop expr_li
   | TEif(e1, e2, e3) ->
-    let lab1, lab2 = get_if_label () in
+    let lab1, lab2 = get_if_labels () in
     compile_expr e1 ++
     testq !%rax !%rax ++
     je lab1 ++
@@ -117,6 +123,34 @@ let rec compile_expr t_expr = match t_expr.expr_desc with
     label lab1 ++
     compile_expr e3 ++
     label lab2
+  | TEswitch(e, branch_li, default_loc, default_e) ->
+    let lab_li, lab_end = get_switch_labels (List.length branch_li) in
+    compile_expr e ++
+
+    begin List.fold_left2
+    ( fun text branch lab ->
+      let c, e_branch = branch in
+      cmpq (imm c) !%rax ++
+      jne lab ++
+
+      compile_expr e_branch ++
+      jmp lab_end ++
+
+      label lab++
+
+
+      text 
+    )
+    nop branch_li lab_li end ++
+
+    (* default *)
+    begin match default_loc with
+      | Some loc -> movq !%rax (ind ~ofs:loc rbp)
+      | None -> nop end ++
+    compile_expr default_e ++
+
+    label lab_end
+
   | TEcase(li, branches) ->
     begin match branches with 
       | (_, e) :: [] -> compile_expr e
@@ -248,7 +282,7 @@ let compile_program program ofile =
         ret ++
 
 
-        label "len" ++
+        (* label "len" ++
         pushq !%rbp ++
         movq !%rsp !%rbp ++
         align_stack ++
@@ -257,7 +291,7 @@ let compile_program program ofile =
         call "strlen" ++
 
         leave ++
-        ret ++
+        ret ++ *)
 
 
         label "StrEq" ++

@@ -16,6 +16,7 @@ type pattern_desc =
   | PatVar          of string
   | PatConstructor  of string * pattern list
   | PatConstant     of constant
+  | PatAny
 and pattern = {pattern_desc : pattern_desc ; loc : position*position}
 
 type tpe_desc =
@@ -69,12 +70,19 @@ type t_expr_desc =
   | TEdo           of t_expr list
   | TElet          of t_bind list * t_expr
   | TEcase         of t_expr list * (pattern list * t_expr) list
+  | TEswitch       of t_expr * (int * t_expr) list * int option * t_expr
   | TEappli        of string * t_expr list
   | TEconstr       of string * t_expr list
   | TEgetconstr    of t_expr
   | TEgetarg       of t_expr * int
-and t_expr = {expr_desc : t_expr_desc ; loc : position*position; typ : Typing_def.typ}
+and t_expr = {expr_desc : t_expr_desc ; typ : Typing_def.typ}
 and t_bind = int * t_expr
+
+type effective_pattern =
+| EPatVar          of int
+| EPatConstructor  of string * int * effective_pattern list (*nom de la data * numéro de constructeur * args *)
+| EPatConstant     of constant
+| EPatAny
 
 type t_fun = string * int * int * t_expr
         (*nom * nb d'arg * nb d'alloc * expr*)

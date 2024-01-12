@@ -26,7 +26,7 @@ let rec group_fun decl_li = match decl_li with
       | DefTypefun(id, foralls, insts, args, ret) ->
           let arg_num = List.length args in
           let q2, eqs, total_loc = find_equations q id arg_num [] t.loc in
-          {gdecl_desc = GDefFun(id, foralls, insts, args, ret, {expr_desc = Ecase(arg_list total_loc arg_num, eqs);
+          {gdecl_desc = GDefFun(id, foralls, insts, args, ret, {expr_desc = Ecase(arg_list total_loc arg_num, List.rev eqs);
                                                                 loc = total_loc}) ;
            loc = t.loc}
            :: (group_fun q2)

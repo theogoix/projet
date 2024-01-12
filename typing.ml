@@ -123,15 +123,22 @@ let find x env =
 
 
 
-let datas = ref Smap.empty;; (* Smap des datas et de leur variables de types *)
-datas := Smap.add "Effect" [V.create ()] !datas;;
+let datas = ref Smap.empty;; (* Smap des datas avec leur variables de types et le nombre de constructeurs *)
+datas := Smap.add "Effect" ([V.create ()], 0) !datas;;
 
 let classes = ref Smap.empty;; (* Smap des classes et de leur variables de types *)
-datas := Smap.add "Show" [V.create ()] !classes;;
+classes := Smap.add "Show" [V.create ()] !classes;;
 
 
+let constructor_number typ = match typ with
+  | Tint -> 99999
+  | Tstring -> 99999
+  | Tbool -> 2
+  | Tdata(id, _) -> let _, n = Smap.find id !datas in n
+  | _ -> 0
 
-let texpr desc loc t = {expr_desc = desc ; loc = loc; typ = t};;
+
+let texpr desc t = {expr_desc = desc; typ = t};;
 
 
 
@@ -165,6 +172,7 @@ let rec type_pattern env alloc_number pat = match pat.pattern_desc with
 | PatConstant(Cbool(_)) -> Tbool, env, alloc_number
 | PatConstant(Cstring(_)) -> Tstring, env, alloc_number
 | PatVar(x) -> let tv = V.create() in Tvar(tv), add false x (Tvar tv) (-8 - 8*alloc_number) env, alloc_number+1
+| PatAny -> let tv = V.create() in Tvar(tv), env, alloc_number
 | PatConstructor(f, pat_li) -> 
     let tf = find f env in
     begin match tf with
@@ -181,7 +189,15 @@ let rec type_pattern env alloc_number pat = match pat.pattern_desc with
         end
         (env, alloc_number) typ_li pat_li in
         t_ret, env, alloc_number
-       |_ -> failwith "oups" end
+        |_ -> failwith "oups" end
+
+
+let rec make_pattern_effective locations pat = match pat.pattern_desc with
+| PatConstant(c) -> EPatConstant(c)
+| PatVar(x) -> EPatVar(Smap.find x locations)
+| PatAny -> EPatAny
+| PatConstructor(f, pat_li) -> 
+    failwith "oups"
 
 
 
@@ -189,7 +205,7 @@ let rec type_pattern env alloc_number pat = match pat.pattern_desc with
 let rec w_expr env (expr:expr) alloc_number = match expr.expr_desc with
 
   | Evar x ->
-      begin try texpr (TEvar (Smap.find x env.locations)) expr.loc (find x env), alloc_number with
+      begin try texpr (TEvar (Smap.find x env.locations)) (find x env), alloc_number with
       Not_found -> 
         Errors.localisation expr.loc;
         eprintf "Typing error: Unkown variable %s@." x;
@@ -202,7 +218,7 @@ let rec w_expr env (expr:expr) alloc_number = match expr.expr_desc with
         | Cint _ -> Tint
         | Cstring _ -> Tstring
       end in
-      texpr (TEcst c) expr.loc t, 0
+      texpr (TEcst c) t, 0
 
 
   | Ebinop (op, e1, e2) -> 
@@ -263,11 +279,11 @@ let rec w_expr env (expr:expr) alloc_number = match expr.expr_desc with
           Tbool
         end in
       if op = Conc then
-        texpr (TEappli("Concat", [te1; te2])) expr.loc t, max alloc_number1 alloc_number2
+        texpr (TEappli("Concat", [te1; te2])) t, max alloc_number1 alloc_number2
       else if op = Eq && not (cant_unify t1 Tstring) then
-          texpr (TEappli("StrEq", [te1; te2])) expr.loc t, max alloc_number1 alloc_number2
+          texpr (TEappli("StrEq", [te1; te2])) t, max alloc_number1 alloc_number2
       else
-        texpr (TEbinop (op, te1, te2)) expr.loc t, max alloc_number1 alloc_number2
+        texpr (TEbinop (op, te1, te2)) t, max alloc_number1 alloc_number2
 
 
   | Eif (e1,e2,e3) -> 
@@ -286,7 +302,7 @@ let rec w_expr env (expr:expr) alloc_number = match expr.expr_desc with
         Errors.localisation e3.loc;
         eprintf "Typing error : both branches of if ... else should have same type but got %s and %s instead@." (string_of_typ t2) (string_of_typ t3);
         exit 1 end; 
-      texpr (TEif (te1, te2, te3)) expr.loc t2, max (max alloc_number1 alloc_number2) alloc_number3
+      texpr (TEif (te1, te2, te3)) t2, max (max alloc_number1 alloc_number2) alloc_number3
 
 
   | Eappli (f, expr_li) ->
@@ -314,7 +330,7 @@ let rec w_expr env (expr:expr) alloc_number = match expr.expr_desc with
             eprintf "Typing error: Wrong number of argument for function %s@." f;
             exit 1
         end in
-        texpr (TEappli(f, li)) expr.loc t_ret, alloc_number
+        texpr (TEappli(f, li)) t_ret, alloc_number
       | _ -> 
         Errors.localisation expr.loc;
         eprintf "Typing error: Trying to apply variable %s which is not a function@." f;
@@ -347,7 +363,7 @@ let rec w_expr env (expr:expr) alloc_number = match expr.expr_desc with
             eprintf "Typing error: Wrong number of argument for constructor %s@." f;
             exit 1
         end in
-        texpr (TEappli(f, li)) expr.loc t_ret, alloc_number
+        texpr (TEappli(f, li)) t_ret, alloc_number
       | _ -> 
         Errors.localisation expr.loc;
         eprintf "Typing error: Trying to apply variable %s which is not a constructor@." f;
@@ -368,7 +384,7 @@ let rec w_expr env (expr:expr) alloc_number = match expr.expr_desc with
       te::te_li, max alloc_number alloc_number1
     end
     ([], 0) li in
-    texpr (TEdo(te_li)) expr.loc (Tdata("Effect", [Tunit])), alloc_number
+    texpr (TEdo(te_li)) (Tdata("Effect", [Tunit])), alloc_number
 
 
   | Elet (bind_li, e) ->
@@ -387,7 +403,7 @@ let rec w_expr env (expr:expr) alloc_number = match expr.expr_desc with
       in
       let tbind_li, env, alloc_number, max_alloc_number = List.fold_left add_binding_gen ([], env, alloc_number, alloc_number) bind_li in
       let te, alloc_number1 = w_expr env e alloc_number in
-      texpr (TElet(tbind_li, te)) expr.loc te.typ, max max_alloc_number alloc_number1
+      texpr (TElet(tbind_li, te)) te.typ, max max_alloc_number alloc_number1
 
 
   | Eforcetype(e, tpe) ->
@@ -401,6 +417,11 @@ let rec w_expr env (expr:expr) alloc_number = match expr.expr_desc with
   
   
   | Ecase(expr_li, branch_li) ->
+
+      let branch_li = List.rev branch_li in
+
+      (* On type les expressions en entrée *)
+
       let texpr_li, max_alloc_number = List.fold_left
       begin fun acc e ->
         let (texpr_li, max_alloc_number) = acc in
@@ -410,9 +431,12 @@ let rec w_expr env (expr:expr) alloc_number = match expr.expr_desc with
       ([], alloc_number)
       expr_li in
 
-      let tbranch_li, max_alloc_number = List.fold_left
+      (* On type les expressions en sortie, et on récupère dans locations_li les emplacements
+         mémoires que l'on a donné aux variables introduites dans les patternes *)
+
+      let tbranch_li, max_alloc_number, locations_li = List.fold_left
       begin fun acc branch ->
-        let tbranch_li, max_alloc_number = acc in
+        let tbranch_li, max_alloc_number, locations_li = acc in
         let pats, e = branch in
         let env, alloc_number = List.fold_left2
         begin fun acc pat (te:t_expr) ->
@@ -426,11 +450,14 @@ let rec w_expr env (expr:expr) alloc_number = match expr.expr_desc with
         end
         (env, alloc_number) pats texpr_li in 
         let te, alloc_number = w_expr env e alloc_number in
-        (pats, te)::tbranch_li, max max_alloc_number alloc_number
+        (pats, te)::tbranch_li, max max_alloc_number alloc_number, env.locations::locations_li
       end
-      ([], max_alloc_number)
+      ([], max_alloc_number, [])
       branch_li 
       in
+      
+
+      (* On vérifie que toutes les branches renvoient le même type *)
 
       match tbranch_li with
         | [] -> begin
@@ -445,38 +472,98 @@ let rec w_expr env (expr:expr) alloc_number = match expr.expr_desc with
             let _, (te:t_expr) = branch in
             let t = te.typ in
             if cant_unify t t1 then begin
-              Errors.localisation te.loc;
-              eprintf "Typing error: This branch has type %s while the first branch has type %s@." (string_of_typ t) (string_of_typ t1);
+              Errors.localisation expr.loc;
+              eprintf "Typing error: A branch has type %s while another has type %s@." (string_of_typ t) (string_of_typ t1);
               exit 1 end
               )
           q;
-          texpr (TEcase(texpr_li, tbranch_li)) expr.loc t1, max_alloc_number
+      
+      (*en prep de l'algo F, on remplace les patterns par des effective_patterns *)
+
+      let ebranch_li = List.map2
+      begin fun tbranch locations ->
+        let pat_li, te = tbranch in
+        List.map (make_pattern_effective locations) pat_li, te
+      end
+      tbranch_li locations_li in
+
+
+      algo_f env expr.loc texpr_li ebranch_li, max_alloc_number
 
 
 
 
-(*and f env (arg_li:t_expr list) (branch_li:(pattern list * expr) list) = 
-  match branch_li with
-    | [] -> 
-      Errors.localisation expr.loc;
+
+
+
+(* Algorithme F *)
+and algo_f env loc (arg_li:t_expr list) (ebranch_li:(effective_pattern list * t_expr) list) = 
+  match arg_li, ebranch_li with
+
+    | _, [] -> 
+      Errors.localisation loc;
       eprintf "Typing error: Non-exhaustive pattern-matching@.";
       exit 1
-    | branch1::_ ->
-      let pats1, e1 = branch1 in
-      match pats1 with
-        | [] -> w_expr env e1
-        | pat11 :: pats1 -> 
-          if 
-            List.for_all 
-            (fun branch -> let pats, _ = branch in let p = first_of_list pats in match p.pattern_desc with
-            | PatVar(_) -> true
-            | _ -> false)
-            branch_li
-          then
-            let arg1 = first_of_list arg_li in
-            List.map
-            (fun branch -> )
-          ;*)
+
+    | [], tbranch::_ -> (* case sur rien *)
+      let _, te = tbranch in
+      te
+
+    | arg1::arg_li_other, _ -> 
+
+      (* if arg1.typ = Tint then
+        failwith "ah"
+      else*)
+
+      let starts_with_var ebranch =
+        let pat_li, _ = ebranch in
+        match pat_li with
+        | EPatVar _ ::_ -> true
+        | _ -> false
+      in
+
+      let remove_first_var arg tbranch =
+        let pat_li, te = tbranch in
+        let pat::pat_li_other = pat_li in
+        let EPatVar loc = pat in
+        pat_li_other, texpr (TElet([(loc, arg)], te)) te.typ
+      in
+      
+      if List.for_all starts_with_var ebranch_li then (* La 1ère colonne n'a que des variables *)
+        let tbranch_li = List.map (remove_first_var arg1) ebranch_li in
+        algo_f env loc arg_li_other tbranch_li
+
+      else if arg_li_other = [] && arg1.typ = Tint then
+        switch_of_case env loc arg_li ebranch_li []
+      else begin
+        
+
+        Errors.localisation loc;
+        eprintf "Typing error: Failed pattern-matching@.";
+        exit 1 end
+
+(*transforme un case sur un entier en un switch (forme compilable) *)
+and switch_of_case env loc (arg_li:t_expr list) (ebranch_li:(effective_pattern list * t_expr) list) transformed_branches =
+  match arg_li, ebranch_li with
+  | arg1::[],
+    (pat1::[], te)::tbranch_li_other ->
+    begin match pat1 with
+    | EPatAny -> 
+      texpr (TEswitch(arg1, transformed_branches, None, te)) te.typ
+    | EPatVar (loc) -> 
+      texpr (TEswitch(arg1, transformed_branches, Some loc, te)) te.typ
+    | EPatConstant (Cint n) -> 
+      switch_of_case env loc arg_li tbranch_li_other ((n, te) :: transformed_branches)
+    | _ -> begin
+      Errors.localisation loc;
+      eprintf "Typing error: Failed pattern-matching A@.";
+      exit 1 end
+
+    end
+  | _ -> 
+    Errors.localisation loc;
+    eprintf "Typing error: Failed pattern-matching B@.";
+    exit 1
 
 
 let remove_empty_arrows t = match t with
@@ -567,7 +654,7 @@ let rec type_decl env gdecl_li =
         (fun (var_list, var_names) a -> let tv = V.create () in tv::var_list, Smap.add a tv var_names)
         ([], Smap.empty) foralls
         in
-        datas := Smap.add id var_list !datas;
+        datas := Smap.add id (var_list, List.length constructors) !datas;
         let env = List.fold_left
         begin fun env constr ->
           let cid, args = constr in
@@ -650,7 +737,6 @@ let type_file decl_li =
                   |> add "print_bool" { vars = Vset.empty; typ = Tarrow([Tbool], Tdata("Effect", [Tunit])) }
                   |> add "not" { vars = Vset.empty; typ = Tarrow([Tbool], Tbool) }
                   |> add "mod" { vars = Vset.empty; typ = Tarrow([Tint; Tint], Tint) }
-                  |> add "len" { vars = Vset.empty; typ = Tarrow([Tstring], Tint) }
                   |> add "unit" { vars = Vset.empty; typ = Tunit }
                   |> add "pure" { vars = Vset.singleton a; typ = Tarrow([Tvar(a)], Tdata("Effect", [Tvar(a)])) } );
     locations = Smap.empty; fvars = Vset.empty; type_bindings = Smap.empty } 
